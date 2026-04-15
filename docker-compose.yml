@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  # The Audit & Auth Database
+  postgres:
+    image: postgres:15
+    container_name: missu-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: missu_admin
+      POSTGRES_PASSWORD: local_dev_password
+      POSTGRES_DB: missu_core
+    ports:
+      - "5435:5432" 
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # The Vector Database for RAG
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: missu-qdrant
+    restart: always
+    ports:
+      - "6333:6333" # REST API
+      - "6334:6334" # gRPC API
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+volumes:
+  postgres_data:
+  qdrant_data:

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MISSU Raw Audio Test</title>
+</head>
+<body style="background: #111; color: #0f0; font-family: monospace; padding: 50px;">
+    <h1>MISSU RAW CONNECTION PORTAL</h1>
+    <p>1. Open the Developer Console (F12).</p>
+    <p>2. Click the button below.</p>
+    <button id="startBtn" style="padding: 15px; font-size: 18px; cursor: pointer;">Connect & Transmit Audio</button>
+
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+    <script>
+        const token = "eyJhbGciOiJIUzI1NiJ9.eyJuYW1lIjoiYWRtaW4iLCJ2aWRlbyI6eyJyb29tSm9pbiI6dHJ1ZSwicm9vbSI6Im1pc3N1LXRlcm1pbmFsIiwiY2FuUHVibGlzaCI6dHJ1ZSwiY2FuU3Vic2NyaWJlIjp0cnVlfSwiaXNzIjoiQVBJVVphdUJSaFRDTTZ3IiwiZXhwIjoxNzc2MTc0NTkyLCJuYmYiOjE3NzYxNTI5OTIsInN1YiI6ImFkbWluIn0._PGzDmmT0egNtepdcnmay7bbO4b3hFYd4-DOpiJm6HU";
+        const url = "wss://missu-kkpw1km6.livekit.cloud";
+
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            try {
+                console.log("Connecting to MISSU Terminal...");
+                const room = new LivekitClient.Room();
+                
+                // 1. Connect to the room
+                await room.connect(url, token);
+                console.log("Connected! Turning on microphone...");
+
+                // 2. Grab the microphone and push it to the room
+                const tracks = await LivekitClient.createLocalTracks({ audio: true, video: false });
+                await room.localParticipant.publishTrack(tracks[0]);
+                
+                console.log("Audio transmitting. Speak now!");
+                document.getElementById('startBtn').innerText = "TRANSMITTING... SPEAK NOW";
+                document.getElementById('startBtn').style.background = "#f00";
+                
+            } catch (error) {
+                console.error("Connection Failed:", error);
+                alert("Error: Check console for details.");
+            }
+        });
+    </script>
+</body>
+</html>
