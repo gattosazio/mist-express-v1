@@ -111,6 +111,12 @@ const synthesizeSpeech = async (deepgram, text) => {
 
     const wavBuffer = await collectStream(stream);
     return readWavPcm(wavBuffer);
+    const ttsAudio = readWavPcm(wavBuffer);
+    console.log(
+        `\x1b[36m[TTS PCM]\x1b[0m rate=${ttsAudio.sampleRate} channels=${ttsAudio.numChannels} bytes=${ttsAudio.pcmBuffer.byteLength}`
+    );
+    return ttsAudio;
+
 };
 
 const playPcmToRoom = async (ttsAudio, ttsSource) => {
@@ -124,11 +130,11 @@ const playPcmToRoom = async (ttsAudio, ttsSource) => {
         throw new Error(`TTS channel mismatch: expected ${TTS_CHANNELS}, got ${numChannels}`);
     }
 
-    const sampleCount = Math.floor(pcmBuffer.byteLength / 2);
+    const pcmBytes = Uint8Array.from(pcmBuffer);
     const pcm = new Int16Array(
-        pcmBuffer.buffer,
-        pcmBuffer.byteOffset,
-        sampleCount
+        pcmBytes.buffer,
+        pcmBytes.byteOffset,
+        Math.floor(pcmBytes.byteLength / 2)
     );
 
     for (let i = 0; i < pcm.length; i += TTS_SAMPLES_PER_FRAME) {
@@ -136,7 +142,7 @@ const playPcmToRoom = async (ttsAudio, ttsSource) => {
         if (!slice.length) continue;
 
         const frame = new AudioFrame(
-            slice,
+            new Int16Array(slice),
             TTS_SAMPLE_RATE,
             TTS_CHANNELS,
             slice.length
