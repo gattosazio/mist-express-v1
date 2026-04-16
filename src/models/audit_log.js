@@ -1,27 +1,72 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
-const User = require('./user'); // Import User to link the tables together
+const User = require('./user');
 
-const AuditLog = sequelize.define('AuditLog', {
-    id: {
-        type: DataTypes.INTEGER,
-        autoIncrement: true,
-        primaryKey: true,
+const AuditLog = sequelize.define(
+    'AuditLog',
+    {
+        id: {
+            type: DataTypes.INTEGER,
+            autoIncrement: true,
+            primaryKey: true,
+        },
+        userId: {
+            type: DataTypes.INTEGER,
+            allowNull: true,
+        },
+        participant_identity: {
+            type: DataTypes.STRING,
+            allowNull: true,
+        },
+        channel: {
+            type: DataTypes.STRING,
+            allowNull: false,
+            defaultValue: 'voice',
+        },
+        query: {
+            type: DataTypes.TEXT,
+            allowNull: false,
+        },
+        response: {
+            type: DataTypes.TEXT,
+            allowNull: false,
+        },
+        confidence: {
+            type: DataTypes.STRING,
+            allowNull: true,
+        },
+        escalation_needed: {
+            type: DataTypes.BOOLEAN,
+            allowNull: false,
+            defaultValue: false,
+        },
+        policy_type: {
+            type: DataTypes.STRING,
+            allowNull: true,
+        },
+        citations: {
+            type: DataTypes.JSONB,
+            allowNull: false,
+            defaultValue: [],
+        },
+        retrieved_chunks: {
+            type: DataTypes.JSONB,
+            allowNull: false,
+            defaultValue: [],
+        },
+        metadata: {
+            type: DataTypes.JSONB,
+            allowNull: false,
+            defaultValue: {},
+        },
     },
-    query: {
-        type: DataTypes.TEXT,
-        allowNull: false,
-    },
-    response: {
-        type: DataTypes.TEXT,
-        allowNull: false,
+    {
+        tableName: 'audit_logs',
+        timestamps: true,
+        underscored: true,
     }
-}, {
-    tableName: 'audit_logs',
-    timestamps: true, 
-});
+);
 
-// Establish the Relationship: One User can have many Audit Logs
 User.hasMany(AuditLog, { foreignKey: 'userId' });
 AuditLog.belongsTo(User, { foreignKey: 'userId' });
 

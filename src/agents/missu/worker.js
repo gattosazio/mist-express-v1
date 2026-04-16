@@ -5,9 +5,9 @@ const { createClient } = require('@deepgram/sdk');
 
 const env = require('../../config/env');
 const { ROOM_NAME, AGENT_IDENTITY } = require('./constants');
-const { createLlmResponder } = require('./llm');
 const { initTtsPipeline } = require('./tts');
 const { createAudioBridge } = require('./audioBridge');
+const { askPolicyQuestion } = require('../../apps/rag/v1/service');
 
 const buildAgentToken = async () => {
     const agentToken = new AccessToken(env.livekit.apiKey, env.livekit.apiSecret, {
@@ -31,7 +31,6 @@ const startMissuAgent = async () => {
     const activeSessions = new Map();
 
     const deepgram = createClient(env.deepgramApiKey);
-    const { generateAssistantReply, extractRetryDelayMs } = createLlmResponder(env);
 
     room.on(RoomEvent.ParticipantConnected, (participant) => {
         console.log(`\n\x1b[36m[MISSU CORE] ${participant.identity} has entered the terminal.\x1b[0m`);
@@ -75,8 +74,7 @@ const startMissuAgent = async () => {
             participant,
             track,
             deepgram,
-            generateAssistantReply,
-            extractRetryDelayMs,
+            askPolicyQuestion,
             speakText: ttsPipeline.speakText,
         });
 

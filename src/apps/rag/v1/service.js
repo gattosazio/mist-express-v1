@@ -217,15 +217,24 @@ const askPolicyQuestion = async (payload = {}) => {
         answer: parsed.answer || 'I could not verify that from the current policy context.',
         confidence: parsed.confidence || 'low',
         escalationNeeded: parsed.escalationNeeded !== false,
-        citations: Array.isArray(parsed.citations) ? parsed.citations : [],
+        citations: Array.isArray(parsed.citations)
+            ? parsed.citations.map((citation) => ({
+                ...citation,
+                policyType: policy_type || null,
+            }))
+            : [],
         retrievedChunks: retrievedChunks.map((chunk) => ({
             id: chunk.id,
             documentTitle: chunk.document_title,
             sectionTitle: chunk.section_title,
             chunkIndex: chunk.chunk_index,
             retrievalScore: chunk.retrieval_score,
+            policyType: chunk.policy_type,
+            sourceUrl: chunk.source_url,
+            version: chunk.version,
         })),
     };
+
 };
 
 module.exports = {
