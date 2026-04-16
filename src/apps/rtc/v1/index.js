@@ -3,7 +3,10 @@ const { getToken } = require('./controller');
 const requireAuth = require('../../../middlewares/requireAuth');
 
 const router = express.Router();
+function routes() {
+    router.get('/token', requireAuth, getToken);
 
-router.get('/token', requireAuth, getToken);
+    return router;
+}
 
-module.exports = router;
+module.exports = routes;

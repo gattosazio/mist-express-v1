@@ -1,11 +1,12 @@
 const express = require('express');
 const authenticate = require('../apps/auth/v1/index');
 const rtc = require('../apps/rtc/v1/index');
+const rag = require('../apps/rag/v1/index');
 
-const router = express.Router();
+const routes = express.Router();
 
-router.use('/auth/v1', authenticate);
+routes.use('/auth/v1', authenticate());
+routes.use('/rtc/v1', rtc());
+routes.use('/rag/v1', rag());
 
-router.use('/rtc/v1', rtc);
-
-module.exports = router;
+module.exports = routes;
