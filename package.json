@@ -25,6 +25,7 @@
     "openai": "^6.34.0",
     "pg": "^8.20.0",
     "pg-hstore": "^2.3.4",
+    "pgvector": "^0.2.1",
     "sequelize": "^6.37.8"
   },
   "devDependencies": {

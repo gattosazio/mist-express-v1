@@ -1,3 +1,5 @@
+const { searchSemanticChunks } = require('./vectorStore');
+
 const normalizeText = (text) =>
     text
         .toLowerCase()
@@ -61,14 +63,10 @@ const tokenize = (text) =>
         .map((token) => token.trim())
         .filter((token) => token && !STOP_WORDS.has(token));
 
-const scoreChunk = (question, chunk) => {
+const scoreChunkLexically = (question, chunk) => {
     const questionTokens = tokenize(question);
     const chunkText = normalizeText(
-        [
-            chunk.section_title, 
-            chunk.content, 
-            chunk.document_title, 
-            chunk.policy_type].filter(Boolean).join(' ')
+        [chunk.section_title, chunk.content, chunk.document_title, chunk.policy_type].filter(Boolean).join(' ')
     );
 
     if (!questionTokens.length || !chunkText) {
@@ -95,22 +93,39 @@ const scoreChunk = (question, chunk) => {
     return score;
 };
 
-const retrieveRelevantChunks = ({ 
-    question, 
-    chunks, 
-    topK = 5, 
-    minScore = 2 
-}) => {
+const retrieveLexicallyRelevantChunks = ({ question, chunks, topK = 5, minScore = 2 }) => {
     return chunks
         .map((chunk) => ({
             ...chunk,
-            retrieval_score: scoreChunk(question, chunk),
+            retrieval_score: scoreChunkLexically(question, chunk),
+            retrieval_method: 'lexical',
         }))
         .filter((chunk) => chunk.retrieval_score >= minScore)
         .sort((a, b) => b.retrieval_score - a.retrieval_score)
         .slice(0, topK);
 };
 
+const retrieveSemanticallyRelevantChunks = async ({
+    questionEmbedding,
+    policyType = null,
+    topK = 5,
+    minSimilarity = 0.2,
+}) => {
+    const rows = await searchSemanticChunks({
+        embedding: questionEmbedding,
+        policyType,
+        topK,
+        minSimilarity,
+    });
+
+    return rows.map((row) => ({
+        ...row,
+        retrieval_score: Number(row.similarity),
+        retrieval_method: 'semantic',
+    }));
+};
+
 module.exports = {
-    retrieveRelevantChunks,
+    retrieveLexicallyRelevantChunks,
+    retrieveSemanticallyRelevantChunks,
 };

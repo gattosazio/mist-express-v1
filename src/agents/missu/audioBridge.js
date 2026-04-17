@@ -7,6 +7,7 @@ const {
     DEEPGRAM_ENDPOINTING_MS,
 } = require('./constants');
 const { createTranscriptGate } = require('./transcriptFilter');
+const { logPolicyInteraction } = require('../../apps/rag/v1/audit');
 
 const waitForDeepgramOpen = (dgLive) =>
     new Promise((resolve, reject) => {
@@ -56,8 +57,7 @@ const createAudioBridge = ({
     participant,
     track,
     deepgram,
-    generateAssistantReply,
-    extractRetryDelayMs,
+    askPolicyQuestion,
     speakText,
 }) => {
     const transcriptGate = createTranscriptGate();
@@ -101,7 +101,7 @@ const createAudioBridge = ({
 
     const task = (async () => {
         console.log(
-            `\x1b[32m[MISSU CORE] Audio feed from "${participant.identity}" secured. Booting Deepgram & LLM...\x1b[0m`
+            `\x1b[32m[MISSU CORE] Audio feed from "${participant.identity}" secured. Booting Deepgram & RAG...\x1b[0m`
         );
 
         const rtcAudioStream = new AudioStream(track, {
@@ -160,23 +160,40 @@ const createAudioBridge = ({
             transcriptGate.markAccepted(decision.normalizedCleanedTranscript, now);
 
             try {
-                const missuResponse = await generateAssistantReply(decision.cleanedTranscript);
+                const ragResult = await askPolicyQuestion({
+                    question: decision.cleanedTranscript,
+                });
+
+                const missuResponse =
+                    ragResult?.answer ||
+                    'I could not verify that from the current policy context.';
 
                 console.log(`\x1b[35m[MISSU BRAIN]\x1b[0m ${missuResponse}`);
+                console.log(
+                    `\x1b[36m[RAG]\x1b[0m confidence=${ragResult?.confidence || 'unknown'} escalation=${Boolean(ragResult?.escalationNeeded)} citations=${ragResult?.citations?.length || 0}`
+                );
 
-                await speakText(missuResponse);
-
-                // TODO: Save to audit log
-            } catch (error) {
-                const retryDelayMs = extractRetryDelayMs(error);
-
-                if (retryDelayMs) {
-                    transcriptGate.defer(retryDelayMs);
-                    console.warn(
-                        `\x1b[33m[RATE LIMIT]\x1b[0m LLM cooldown extended by ${Math.ceil(retryDelayMs / 1000)}s.`
-                    );
+                try {
+                    await logPolicyInteraction({
+                        participantIdentity: participant.identity,
+                        query: decision.cleanedTranscript,
+                        response: missuResponse,
+                        confidence: ragResult?.confidence || 'low',
+                        escalationNeeded: Boolean(ragResult?.escalationNeeded),
+                        citations: Array.isArray(ragResult?.citations) ? ragResult.citations : [],
+                        retrievedChunks: Array.isArray(ragResult?.retrievedChunks) ? ragResult.retrievedChunks : [],
+                        policyType: ragResult?.citations?.[0]?.policyType || null,
+                        metadata: {
+                            roomParticipant: participant.identity,
+                            source: 'missu_voice_rag',
+                        },
+                    });
+                } catch (auditError) {
+                    console.error('\x1b[31m[AUDIT ERROR]\x1b[0m', auditError);
                 }
 
+                await speakText(missuResponse);
+            } catch (error) {
                 console.error('\x1b[31m[BRAIN ERROR]\x1b[0m', error);
             }
         });
