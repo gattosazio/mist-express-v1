@@ -15,6 +15,10 @@ const { buildGroundedMessages } = require('./prompt');
 const { embedText, embedTexts } = require('./embedder');
 const { ensureVectorSchema, upsertChunkEmbeddings } = require('./vectorStore');
 
+const HIGH_SIMILARITY_THRESHOLD = 0.65;
+const MEDIUM_SIMILARITY_THRESHOLD = 0.45;
+
+
 const llm = new OpenAI({
     apiKey: env.groqApiKey,
     baseURL: env.groqBaseURL,
@@ -27,6 +31,27 @@ const parseJsonResponse = (text) => {
         throw new Error(`Model returned invalid JSON: ${text}`);
     }
 };
+
+const getTopRetrievalScore = (retrievedChunks = []) => {
+    if (!Array.isArray(retrievedChunks) || !retrievedChunks.length) {
+        return 0;
+    }
+
+    return Number(retrievedChunks[0]?.retrieval_score || 0);
+};
+
+const classifyRetrievalConfidence = (topScore) => {
+    if (topScore >= HIGH_SIMILARITY_THRESHOLD) {
+        return 'high';
+    }
+
+    if (topScore >= MEDIUM_SIMILARITY_THRESHOLD) {
+        return 'medium';
+    }
+
+    return 'low';
+};
+
 
 const ingestDocument = async (payload = {}) => {
     const {
@@ -254,6 +279,30 @@ const askPolicyQuestion = async (payload = {}) => {
         };
     }
 
+    const topRetrievalScore = getTopRetrievalScore(retrievedChunks);
+    const retrievalConfidence = classifyRetrievalConfidence(topRetrievalScore);
+
+    if (retrievalConfidence === 'low') {
+        return {
+            answer: 'I could not verify that from the current policy context.',
+            confidence: 'low',
+            escalationNeeded: true,
+            citations: [],
+            retrievedChunks: retrievedChunks.map((chunk) => ({
+                id: chunk.id,
+                documentTitle: chunk.document_title,
+                sectionTitle: chunk.section_title,
+                chunkIndex: chunk.chunk_index,
+                retrievalScore: chunk.retrieval_score,
+                retrievalMethod: chunk.retrieval_method || retrievalMethod,
+                policyType: chunk.policy_type,
+                sourceUrl: chunk.source_url,
+                version: chunk.version,
+            })),
+            retrievalMethod,
+        };
+    }
+
     const messages = buildGroundedMessages({
         question,
         chunks: retrievedChunks,
@@ -275,10 +324,20 @@ const askPolicyQuestion = async (payload = {}) => {
 
     const parsed = parseJsonResponse(rawText);
 
+    const groundedConfidence =
+    retrievalConfidence === 'high'
+        ? 'high'
+        : 'medium';
+
+    const groundedEscalationNeeded =
+    retrievalConfidence !== 'high'
+        ? true
+        : parsed.escalationNeeded !== false;
+
     return {
         answer: parsed.answer || 'I could not verify that from the current policy context.',
-        confidence: parsed.confidence || 'low',
-        escalationNeeded: parsed.escalationNeeded !== false,
+        confidence: groundedConfidence,
+        escalationNeeded: groundedEscalationNeeded,
         citations: Array.isArray(parsed.citations)
             ? parsed.citations.map((citation) => ({
                   ...citation,
