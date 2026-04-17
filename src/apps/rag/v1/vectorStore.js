@@ -62,6 +62,9 @@ const upsertChunkEmbeddings = async (rows = []) => {
 const searchSemanticChunks = async ({
     embedding,
     policyType = null,
+    site = null,
+    department = null,
+    jurisdiction = null,
     topK = 5,
     minSimilarity = 0.2,
 }) => {
@@ -69,6 +72,29 @@ const searchSemanticChunks = async ({
 
     const rows = await sequelize.query(
         `
+        WITH current_documents AS (
+            SELECT DISTINCT ON (
+                COALESCE(d.source_url, d.title),
+                COALESCE(d.policy_type, '')
+            )
+                d.id,
+                d.title,
+                d.policy_type,
+                d.version,
+                d.source_url,
+                d.effective_date,
+                d.updated_at
+            FROM documents d
+            WHERE d.status IN ('active', 'published')
+              AND (d.effective_date IS NULL OR d.effective_date <= NOW())
+              AND (:policyType IS NULL OR d.policy_type = :policyType)
+            ORDER BY
+                COALESCE(d.source_url, d.title),
+                COALESCE(d.policy_type, ''),
+                d.effective_date DESC NULLS LAST,
+                d.updated_at DESC,
+                d.id DESC
+        )
         SELECT
             c.id,
             c.document_id,
@@ -83,9 +109,10 @@ const searchSemanticChunks = async ({
             1 - (e.embedding <=> CAST(:queryEmbedding AS vector)) AS similarity
         FROM document_chunk_embeddings e
         INNER JOIN document_chunks c ON c.id = e.chunk_id
-        INNER JOIN documents d ON d.id = e.document_id
-        WHERE d.status IN ('active', 'published')
-          AND (:policyType IS NULL OR d.policy_type = :policyType)
+        INNER JOIN current_documents d ON d.id = e.document_id
+        WHERE (:site IS NULL OR c.metadata->>'site' = :site)
+          AND (:department IS NULL OR c.metadata->>'department' = :department)
+          AND (:jurisdiction IS NULL OR c.metadata->>'jurisdiction' = :jurisdiction)
           AND 1 - (e.embedding <=> CAST(:queryEmbedding AS vector)) >= :minSimilarity
         ORDER BY e.embedding <=> CAST(:queryEmbedding AS vector)
         LIMIT :topK;
@@ -94,6 +121,9 @@ const searchSemanticChunks = async ({
             replacements: {
                 queryEmbedding: pgvector.toSql(embedding),
                 policyType,
+                site,
+                department,
+                jurisdiction,
                 minSimilarity,
                 topK,
             },

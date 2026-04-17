@@ -1,5 +1,5 @@
 const OpenAI = require('openai');
-const { Op } = require('sequelize');
+const { QueryTypes, Op } = require('sequelize');
 
 const env = require('../../../config/env');
 const { sequelize } = require('../../../config/database');
@@ -157,60 +157,71 @@ const ingestDocument = async (payload = {}) => {
     };
 };
 
-const getCandidateChunks = async ({ policy_type = null, limit = 300 }) => {
-    const documentWhere = {
-        status: {
-            [Op.in]: ['active', 'published'],
-        },
-    };
-
-    if (policy_type) {
-        documentWhere.policy_type = policy_type;
-    }
-
-    const documents = await Document.findAll({
-        where: documentWhere,
-        order: [['updated_at', 'DESC']],
-        limit: 100,
-    });
-
-    if (!documents.length) {
-        return [];
-    }
-
-    const documentMap = new Map(documents.map((doc) => [doc.id, doc]));
-    const documentIds = documents.map((doc) => doc.id);
-
-    const chunks = await DocumentChunk.findAll({
-        where: {
-            document_id: {
-                [Op.in]: documentIds,
+const getCandidateChunks = async ({
+    policy_type = null,
+    site = null,
+    department = null,
+    jurisdiction = null,
+    limit = 300,
+}) => {
+    const rows = await sequelize.query(
+        `
+        WITH current_documents AS (
+            SELECT DISTINCT ON (
+                COALESCE(d.source_url, d.title),
+                COALESCE(d.policy_type, '')
+            )
+                d.id,
+                d.title,
+                d.policy_type,
+                d.version,
+                d.source_url,
+                d.effective_date,
+                d.updated_at
+            FROM documents d
+            WHERE d.status IN ('active', 'published')
+              AND (d.effective_date IS NULL OR d.effective_date <= NOW())
+              AND (:policyType IS NULL OR d.policy_type = :policyType)
+            ORDER BY
+                COALESCE(d.source_url, d.title),
+                COALESCE(d.policy_type, ''),
+                d.effective_date DESC NULLS LAST,
+                d.updated_at DESC,
+                d.id DESC
+        )
+        SELECT
+            c.id,
+            c.document_id,
+            c.chunk_index,
+            c.section_title,
+            c.content,
+            c.token_count,
+            c.metadata,
+            d.title AS document_title,
+            d.policy_type,
+            d.version,
+            d.source_url
+        FROM document_chunks c
+        INNER JOIN current_documents d ON d.id = c.document_id
+        WHERE (:site IS NULL OR c.metadata->>'site' = :site)
+          AND (:department IS NULL OR c.metadata->>'department' = :department)
+          AND (:jurisdiction IS NULL OR c.metadata->>'jurisdiction' = :jurisdiction)
+        ORDER BY c.document_id ASC, c.chunk_index ASC
+        LIMIT :limit;
+        `,
+        {
+            replacements: {
+                policyType: policy_type,
+                site,
+                department,
+                jurisdiction,
+                limit,
             },
-        },
-        order: [
-            ['document_id', 'ASC'],
-            ['chunk_index', 'ASC'],
-        ],
-        limit,
-    });
+            type: QueryTypes.SELECT,
+        }
+    );
 
-    return chunks.map((chunk) => {
-        const document = documentMap.get(chunk.document_id);
-
-        return {
-            id: chunk.id,
-            document_id: chunk.document_id,
-            chunk_index: chunk.chunk_index,
-            section_title: chunk.section_title,
-            content: chunk.content,
-            token_count: chunk.token_count,
-            metadata: chunk.metadata || {},
-            document_title: document?.title || null,
-            policy_type: document?.policy_type || null,
-            version: document?.version || null,
-            source_url: document?.source_url || null,
-        };
-    });
+    return rows;
 };
 
 const askPolicyQuestion = async (payload = {}) => {
@@ -219,7 +230,14 @@ const askPolicyQuestion = async (payload = {}) => {
         payload.data && typeof payload.data === 'object'
             ? payload.data
             : payload;
-    const { question, policy_type = null } = normalizedPayload;
+
+    const {
+        question,
+        policy_type = null,
+        site = null,
+        department = null,
+        jurisdiction = null,
+    } = normalizedPayload;
 
     if (!question) {
         throw new Error('Question is required.');
@@ -236,18 +254,29 @@ const askPolicyQuestion = async (payload = {}) => {
         retrievedChunks = await retrieveSemanticallyRelevantChunks({
             questionEmbedding,
             policyType: policy_type,
+            site,
+            department,
+            jurisdiction,
             topK: 5,
             minSimilarity: 0.2,
         });
     } catch (error) {
         retrievalMethod = 'lexical_fallback';
-        console.warn('\x1b[33m[RAG RETRIEVAL WARNING]\x1b[0m Semantic retrieval unavailable, falling back to lexical.', error.message);
+        console.warn(
+            '\x1b[33m[RAG RETRIEVAL WARNING]\x1b[0m Semantic retrieval unavailable, falling back to lexical.',
+            error.message
+        );
     }
 
     if (!retrievedChunks.length) {
         retrievalMethod = 'lexical_fallback';
 
-        const candidateChunks = await getCandidateChunks({ policy_type });
+        const candidateChunks = await getCandidateChunks({
+            policy_type,
+            site,
+            department,
+            jurisdiction,
+        });
 
         if (!candidateChunks.length) {
             return {
@@ -298,10 +327,17 @@ const askPolicyQuestion = async (payload = {}) => {
                 policyType: chunk.policy_type,
                 sourceUrl: chunk.source_url,
                 version: chunk.version,
+                site: chunk.metadata?.site || null,
+                department: chunk.metadata?.department || null,
+                jurisdiction: chunk.metadata?.jurisdiction || null,
             })),
             retrievalMethod,
         };
     }
+
+    console.log(
+        `\x1b[36m[RAG RETRIEVAL]\x1b[0m method=${retrievalMethod} topScore=${topRetrievalScore.toFixed(4)} confidence=${retrievalConfidence} policyType=${policy_type || 'any'} site=${site || 'any'} department=${department || 'any'} jurisdiction=${jurisdiction || 'any'}`
+    );
 
     const messages = buildGroundedMessages({
         question,
@@ -325,14 +361,14 @@ const askPolicyQuestion = async (payload = {}) => {
     const parsed = parseJsonResponse(rawText);
 
     const groundedConfidence =
-    retrievalConfidence === 'high'
-        ? 'high'
-        : 'medium';
+        retrievalConfidence === 'high'
+            ? 'high'
+            : 'medium';
 
     const groundedEscalationNeeded =
-    retrievalConfidence !== 'high'
-        ? true
-        : parsed.escalationNeeded !== false;
+        retrievalConfidence !== 'high'
+            ? true
+            : parsed.escalationNeeded !== false;
 
     return {
         answer: parsed.answer || 'I could not verify that from the current policy context.',
@@ -342,6 +378,9 @@ const askPolicyQuestion = async (payload = {}) => {
             ? parsed.citations.map((citation) => ({
                   ...citation,
                   policyType: policy_type || null,
+                  site,
+                  department,
+                  jurisdiction,
               }))
             : [],
         retrievedChunks: retrievedChunks.map((chunk) => ({
@@ -354,6 +393,9 @@ const askPolicyQuestion = async (payload = {}) => {
             policyType: chunk.policy_type,
             sourceUrl: chunk.source_url,
             version: chunk.version,
+            site: chunk.document_metadata?.site || null,
+            department: chunk.document_metadata?.department || null,
+            jurisdiction: chunk.document_metadata?.jurisdiction || null,
         })),
         retrievalMethod,
     };
