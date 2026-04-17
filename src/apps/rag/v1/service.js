@@ -7,12 +7,17 @@ const Document = require('../../../models/document');
 const DocumentChunk = require('../../../models/document_chunk');
 
 const { chunkDocumentText } = require('./chunker');
-const { retrieveRelevantChunks } = require('./retriever');
+const {
+    retrieveLexicallyRelevantChunks,
+    retrieveSemanticallyRelevantChunks,
+} = require('./retriever');
 const { buildGroundedMessages } = require('./prompt');
+const { embedText, embedTexts } = require('./embedder');
+const { ensureVectorSchema, upsertChunkEmbeddings } = require('./vectorStore');
 
 const llm = new OpenAI({
     apiKey: env.groqApiKey,
-    baseURL: env.groqBaseURL
+    baseURL: env.groqBaseURL,
 });
 
 const parseJsonResponse = (text) => {
@@ -51,8 +56,11 @@ const ingestDocument = async (payload = {}) => {
 
     const transaction = await sequelize.transaction();
 
+    let document;
+    let createdChunks;
+
     try {
-        const document = await Document.create(
+        document = await Document.create(
             {
                 title,
                 source_url,
@@ -65,7 +73,7 @@ const ingestDocument = async (payload = {}) => {
             { transaction }
         );
 
-        await DocumentChunk.bulkCreate(
+        createdChunks = await DocumentChunk.bulkCreate(
             chunks.map((chunk) => ({
                 document_id: document.id,
                 chunk_index: chunk.chunk_index,
@@ -80,19 +88,48 @@ const ingestDocument = async (payload = {}) => {
                     ...metadata,
                 },
             })),
-            { transaction }
+            {
+                transaction,
+                returning: true,
+            }
         );
 
         await transaction.commit();
-
-        return {
-            documentId: document.id,
-            chunkCount: chunks.length,
-        };
     } catch (error) {
         await transaction.rollback();
         throw error;
     }
+
+    let embeddingsCreated = 0;
+    let embeddingStatus = 'not_started';
+
+    try {
+        await ensureVectorSchema();
+
+        const chunkTexts = createdChunks.map((chunk) => chunk.content);
+        const embeddings = await embedTexts(chunkTexts);
+
+        await upsertChunkEmbeddings(
+            createdChunks.map((chunk, index) => ({
+                chunkId: chunk.id,
+                documentId: document.id,
+                embedding: embeddings[index],
+            }))
+        );
+
+        embeddingsCreated = embeddings.length;
+        embeddingStatus = 'completed';
+    } catch (error) {
+        embeddingStatus = `failed: ${error.message}`;
+        console.error('\x1b[31m[EMBEDDING ERROR]\x1b[0m', error);
+    }
+
+    return {
+        documentId: document.id,
+        chunkCount: chunks.length,
+        embeddingsCreated,
+        embeddingStatus,
+    };
 };
 
 const getCandidateChunks = async ({ policy_type = null, limit = 300 }) => {
@@ -163,24 +200,48 @@ const askPolicyQuestion = async (payload = {}) => {
         throw new Error('Question is required.');
     }
 
-    const candidateChunks = await getCandidateChunks({ policy_type });
+    let retrievedChunks = [];
+    let retrievalMethod = 'semantic';
 
-    if (!candidateChunks.length) {
-        return {
-            answer: 'I could not verify that because no active policy documents are currently available.',
-            confidence: 'low',
-            escalationNeeded: true,
-            citations: [],
-            retrievedChunks: [],
-        };
+    try {
+        await ensureVectorSchema();
+
+        const questionEmbedding = await embedText(question);
+
+        retrievedChunks = await retrieveSemanticallyRelevantChunks({
+            questionEmbedding,
+            policyType: policy_type,
+            topK: 5,
+            minSimilarity: 0.2,
+        });
+    } catch (error) {
+        retrievalMethod = 'lexical_fallback';
+        console.warn('\x1b[33m[RAG RETRIEVAL WARNING]\x1b[0m Semantic retrieval unavailable, falling back to lexical.', error.message);
     }
 
-    const retrievedChunks = retrieveRelevantChunks({
-        question,
-        chunks: candidateChunks,
-        topK: 5,
-        minScore: 2,
-    });
+    if (!retrievedChunks.length) {
+        retrievalMethod = 'lexical_fallback';
+
+        const candidateChunks = await getCandidateChunks({ policy_type });
+
+        if (!candidateChunks.length) {
+            return {
+                answer: 'I could not verify that because no active policy documents are currently available.',
+                confidence: 'low',
+                escalationNeeded: true,
+                citations: [],
+                retrievedChunks: [],
+                retrievalMethod,
+            };
+        }
+
+        retrievedChunks = retrieveLexicallyRelevantChunks({
+            question,
+            chunks: candidateChunks,
+            topK: 5,
+            minScore: 2,
+        });
+    }
 
     if (!retrievedChunks.length) {
         return {
@@ -189,6 +250,7 @@ const askPolicyQuestion = async (payload = {}) => {
             escalationNeeded: true,
             citations: [],
             retrievedChunks: [],
+            retrievalMethod,
         };
     }
 
@@ -198,7 +260,7 @@ const askPolicyQuestion = async (payload = {}) => {
     });
 
     const completion = await llm.chat.completions.create({
-        model: env.groqModel || 'llama-3.1-8b-instant',
+        model: env.groqModel,
         messages,
         temperature: 0.1,
         max_tokens: 500,
@@ -219,9 +281,9 @@ const askPolicyQuestion = async (payload = {}) => {
         escalationNeeded: parsed.escalationNeeded !== false,
         citations: Array.isArray(parsed.citations)
             ? parsed.citations.map((citation) => ({
-                ...citation,
-                policyType: policy_type || null,
-            }))
+                  ...citation,
+                  policyType: policy_type || null,
+              }))
             : [],
         retrievedChunks: retrievedChunks.map((chunk) => ({
             id: chunk.id,
@@ -229,12 +291,13 @@ const askPolicyQuestion = async (payload = {}) => {
             sectionTitle: chunk.section_title,
             chunkIndex: chunk.chunk_index,
             retrievalScore: chunk.retrieval_score,
+            retrievalMethod: chunk.retrieval_method || retrievalMethod,
             policyType: chunk.policy_type,
             sourceUrl: chunk.source_url,
             version: chunk.version,
         })),
+        retrievalMethod,
     };
-
 };
 
 module.exports = {

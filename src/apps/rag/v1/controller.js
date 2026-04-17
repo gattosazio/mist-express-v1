@@ -2,9 +2,9 @@ const ragService = require('./service');
 
 const ingestDocument = async (req, res) => {
     try {
-        console.log('[RAG INGEST HEADERS]', req.headers);
-        console.log('[RAG INGEST BODY]', req.body);
-        console.log('[RAG INGEST BODY TYPE]', typeof req.body);
+        // console.log('[RAG INGEST HEADERS]', req.headers);
+        // console.log('[RAG INGEST BODY]', req.body);
+        // console.log('[RAG INGEST BODY TYPE]', typeof req.body);
 
         const result = await ragService.ingestDocument(req.body || {});
 
