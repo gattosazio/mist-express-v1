@@ -7,9 +7,9 @@ services:
     container_name: missu-postgres
     restart: always
     environment:
-      POSTGRES_USER: missu_admin
-      POSTGRES_PASSWORD: local_dev_password
-      POSTGRES_DB: missu_core
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5435:5432" 
     volumes:
