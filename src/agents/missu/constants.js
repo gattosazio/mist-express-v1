@@ -24,6 +24,8 @@ const TTS_TRACK_NAME = 'missu-voice';
 const DEFAULT_GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
 const DEFAULT_GROQ_MODEL = 'llama-3.1-8b-instant';
 
+const CLARIFICATION_TTL_MS = 30000;
+
 const MISSU_SYSTEM_PROMPT =
     'You are MISSU, a highly secure, elite AI terminal assistant. You are concise, professional, and slightly robotic. Keep all responses under 2 sentences so they can be spoken quickly over a voice channel.';
 
@@ -49,4 +51,5 @@ module.exports = {
     DEFAULT_GROQ_BASE_URL,
     DEFAULT_GROQ_MODEL,
     MISSU_SYSTEM_PROMPT,
+    CLARIFICATION_TTL_MS,
 };
