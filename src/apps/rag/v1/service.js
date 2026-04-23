@@ -25,9 +25,13 @@ const POLICY_GUIDANCE_SUFFIX =
 
 const POLICY_KEYWORDS = [
     'policy',
+    'policies',
     'procedure',
+    'procedures',
     'guideline',
+    'guidelines',
     'rule',
+    'rules',
     'compliance',
     'company',
     'official',
@@ -35,14 +39,22 @@ const POLICY_KEYWORDS = [
     'required',
     'restricted',
     'approval',
+    'approvals',
+    'process',
+    'processes',
     'report',
     'incident',
+    'incidents',
     'visitor',
+    'visitors',
     'escort',
     'security',
     'hr',
+    'human resources',
     'safety',
+    'leave',
     'department',
+    'departments',
 ];
 
 const classifyQuestionIntentHeuristically = (question = '') => {
