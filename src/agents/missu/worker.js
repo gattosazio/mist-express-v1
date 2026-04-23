@@ -9,6 +9,8 @@ const { initTtsPipeline } = require('./tts');
 const { createAudioBridge } = require('./audioBridge');
 const { askPolicyQuestion } = require('../../apps/rag/v1/service');
 
+const TRANSCRIPT_TOPIC = 'missu.transcript';
+
 const buildAgentToken = async () => {
     const agentToken = new AccessToken(env.livekit.apiKey, env.livekit.apiSecret, {
         identity: AGENT_IDENTITY,
@@ -31,6 +33,19 @@ const startMissuAgent = async () => {
     const activeSessions = new Map();
 
     const deepgram = createClient(env.deepgramApiKey);
+
+    const publishTranscriptEvent = async (event) => {
+        try {
+            const payload = new TextEncoder().encode(JSON.stringify(event));
+
+            await room.localParticipant.publishData(payload, {
+                reliable: true,
+                topic: TRANSCRIPT_TOPIC,
+            });
+        } catch (error) {
+            console.error('\x1b[31m[TRANSCRIPT PUBLISH ERROR]\x1b[0m', error);
+        }
+    };
 
     room.on(RoomEvent.ParticipantConnected, (participant) => {
         console.log(`\n\x1b[36m[MISSU CORE] ${participant.identity} has entered the terminal.\x1b[0m`);
@@ -76,6 +91,7 @@ const startMissuAgent = async () => {
             deepgram,
             askPolicyQuestion,
             speakText: ttsPipeline.speakText,
+            publishTranscriptEvent,
         });
 
         activeSessions.set(participant.identity, session);
