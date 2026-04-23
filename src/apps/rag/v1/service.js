@@ -42,9 +42,7 @@ const POLICY_KEYWORDS = [
     'security',
     'hr',
     'safety',
-    'jurisdiction',
     'department',
-    'site',
 ];
 
 const classifyQuestionIntentHeuristically = (question = '') => {
@@ -58,33 +56,76 @@ const classifyQuestionIntentHeuristically = (question = '') => {
         normalized.includes(keyword)
     ).length;
 
-    const generalStarts = [
-        'what is',
-        'what are',
-        'how does',
-        'explain',
-        'define',
-        'tell me about',
-        'why does',
-        'how do i',
-    ];
-
-    const looksGeneral = generalStarts.some((prefix) => normalized.startsWith(prefix));
-
-    if (policyMatches >= 2) {
-        return 'policy_specific';
-    }
-
-    if (policyMatches === 1 && looksGeneral) {
-        return 'mixed';
-    }
-
-    if (policyMatches === 1) {
-        return 'policy_specific';
-    }
-
-    return 'general_ai';
+    return policyMatches >= 1 ? 'policy_specific' : 'redirect_to_policy';
 };
+
+const buildPolicyRedirectResponse = () => {
+    return {
+        mode: 'policy_redirect',
+        answer:
+            'Hi! I can help with company rules, procedures, and department-specific policies. Please ask your question in a policy-related way and include the department when relevant, for example: "What is the visitor policy for Security?" or "What is the leave approval process for HR?"',
+        confidence: 'low',
+        escalationNeeded: false,
+        needsClarification: false,
+        clarificationType: null,
+        clarificationOptions: [],
+        citations: [],
+        retrievedChunks: [],
+        retrievalMethod: 'policy_redirect',
+    };
+};
+
+const normalizeForMatch = (value = '') => {
+    return String(value || '')
+        .toLowerCase()
+        .trim()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, ' ');
+};
+
+const findMatchingClarificationOption = (question = '', options = []) => {
+    const normalizedQuestion = normalizeForMatch(question);
+
+    if (!normalizedQuestion) {
+        return null;
+    }
+
+    return options.find((option) => {
+        const normalizedOption = normalizeForMatch(option);
+
+        return (
+            normalizedQuestion === normalizedOption ||
+            normalizedQuestion.includes(normalizedOption) ||
+            normalizedOption.includes(normalizedQuestion)
+        );
+    }) || null;
+};
+
+const resolveDepartmentClarification = ({ question, conversationState }) => {
+    if (
+        !conversationState ||
+        !conversationState.pendingClarification ||
+        conversationState.pendingClarification.type !== 'department' ||
+        !conversationState.lastPolicyQuestion
+    ) {
+        return null;
+    }
+
+    const matchedDepartment = findMatchingClarificationOption(
+        question,
+        conversationState.pendingClarification.options || []
+    );
+
+    if (!matchedDepartment) {
+        return null;
+    }
+
+    return {
+        question: conversationState.lastPolicyQuestion,
+        department: matchedDepartment,
+    };
+};
+
 
 const buildGeneralAnswerMessages = ({ question }) => {
     return [
@@ -202,37 +243,24 @@ const uniqueValues = (values = []) => {
 };
 
 const buildClarificationPrompt = (retrievedChunks = []) => {
-    const sites = uniqueValues(retrievedChunks.map((chunk) => chunk.metadata?.site || chunk.site));
-    const departments = uniqueValues(retrievedChunks.map((chunk) => chunk.metadata?.department || chunk.department));
-    const jurisdictions = uniqueValues(retrievedChunks.map((chunk) => chunk.metadata?.jurisdiction || chunk.jurisdiction));
-
-    if (sites.length > 1) {
-        return {
-            clarificationType: 'site',
-            clarificationQuestion: `I found multiple site-specific policies. Which site is this for: ${sites.slice(0, MAX_CLARIFICATION_CHOICES).join(', ')}?`,
-            clarificationOptions: sites.slice(0, MAX_CLARIFICATION_CHOICES),
-        };
-    }
+    const departments = uniqueValues(
+        retrievedChunks.map((chunk) => chunk.metadata?.department || chunk.department)
+    );
 
     if (departments.length > 1) {
         return {
             clarificationType: 'department',
-            clarificationQuestion: `I found multiple department-specific policies. Which department is this for: ${departments.slice(0, MAX_CLARIFICATION_CHOICES).join(', ')}?`,
+            clarificationQuestion: `I found multiple department-specific policies. Which department is this for: ${departments
+                .slice(0, MAX_CLARIFICATION_CHOICES)
+                .join(', ')}?`,
             clarificationOptions: departments.slice(0, MAX_CLARIFICATION_CHOICES),
         };
     }
 
-    if (jurisdictions.length > 1) {
-        return {
-            clarificationType: 'jurisdiction',
-            clarificationQuestion: `I found multiple jurisdiction-specific policies. Which jurisdiction is this for: ${jurisdictions.slice(0, MAX_CLARIFICATION_CHOICES).join(', ')}?`,
-            clarificationOptions: jurisdictions.slice(0, MAX_CLARIFICATION_CHOICES),
-        };
-    }
-
     return {
-        clarificationType: 'scope',
-        clarificationQuestion: 'I found multiple plausible policy matches. Can you clarify the site, department, or jurisdiction?',
+        clarificationType: 'department',
+        clarificationQuestion:
+            'I found multiple plausible policy matches. Can you clarify which department this is for?',
         clarificationOptions: [],
     };
 };
@@ -244,31 +272,17 @@ const detectAmbiguity = (retrievedChunks = []) => {
 
     const topChunks = retrievedChunks.slice(0, 3);
 
-    const sites = uniqueValues(topChunks.map((chunk) => chunk.metadata?.site || chunk.site));
-    const departments = uniqueValues(topChunks.map((chunk) => chunk.metadata?.department || chunk.department));
-    const jurisdictions = uniqueValues(topChunks.map((chunk) => chunk.metadata?.jurisdiction || chunk.jurisdiction));
-
-    if (sites.length > 1) {
-        return {
-            clarificationType: 'site',
-            clarificationQuestion: `I found multiple site-specific policies. Which site is this for: ${sites.slice(0, MAX_CLARIFICATION_CHOICES).join(', ')}?`,
-            clarificationOptions: sites.slice(0, MAX_CLARIFICATION_CHOICES),
-        };
-    }
+    const departments = uniqueValues(
+        topChunks.map((chunk) => chunk.metadata?.department || chunk.department)
+    );
 
     if (departments.length > 1) {
         return {
             clarificationType: 'department',
-            clarificationQuestion: `I found multiple department-specific policies. Which department is this for: ${departments.slice(0, MAX_CLARIFICATION_CHOICES).join(', ')}?`,
+            clarificationQuestion: `I found multiple department-specific policies. Which department is this for: ${departments
+                .slice(0, MAX_CLARIFICATION_CHOICES)
+                .join(', ')}?`,
             clarificationOptions: departments.slice(0, MAX_CLARIFICATION_CHOICES),
-        };
-    }
-
-    if (jurisdictions.length > 1) {
-        return {
-            clarificationType: 'jurisdiction',
-            clarificationQuestion: `I found multiple jurisdiction-specific policies. Which jurisdiction is this for: ${jurisdictions.slice(0, MAX_CLARIFICATION_CHOICES).join(', ')}?`,
-            clarificationOptions: jurisdictions.slice(0, MAX_CLARIFICATION_CHOICES),
         };
     }
 
@@ -416,9 +430,7 @@ const ingestDocument = async (payload = {}) => {
 
 const getCandidateChunks = async ({
     policy_type = null,
-    site = null,
     department = null,
-    jurisdiction = null,
     limit = 300,
 }) => {
     const rows = await sequelize.query(
@@ -459,18 +471,14 @@ const getCandidateChunks = async ({
             d.source_url
         FROM document_chunks c
         INNER JOIN current_documents d ON d.id = c.document_id
-        WHERE (:site IS NULL OR c.metadata->>'site' = :site)
-          AND (:department IS NULL OR c.metadata->>'department' = :department)
-          AND (:jurisdiction IS NULL OR c.metadata->>'jurisdiction' = :jurisdiction)
+        WHERE (:department IS NULL OR c.metadata->>'department' = :department)
         ORDER BY c.document_id ASC, c.chunk_index ASC
         LIMIT :limit;
         `,
         {
             replacements: {
                 policyType: policy_type,
-                site,
                 department,
-                jurisdiction,
                 limit,
             },
             type: QueryTypes.SELECT,
@@ -487,12 +495,10 @@ const askPolicyQuestionStrict = async (payload = {}) => {
             ? payload.data
             : payload;
 
-    const {
+        const {
         question,
         policy_type = null,
-        site = null,
         department = null,
-        jurisdiction = null,
     } = normalizedPayload;
 
     if (!question) {
@@ -507,15 +513,14 @@ const askPolicyQuestionStrict = async (payload = {}) => {
 
         const questionEmbedding = await embedText(question);
 
-        retrievedChunks = await retrieveSemanticallyRelevantChunks({
-            questionEmbedding,
-            policyType: policy_type,
-            site,
-            department,
-            jurisdiction,
-            topK: 5,
-            minSimilarity: 0.2,
-        });
+            retrievedChunks = await retrieveSemanticallyRelevantChunks({
+        questionEmbedding,
+        policyType: policy_type,
+        department,
+        topK: 5,
+        minSimilarity: 0.2,
+    });
+
     } catch (error) {
         retrievalMethod = 'lexical_fallback';
         console.warn(
@@ -529,9 +534,7 @@ const askPolicyQuestionStrict = async (payload = {}) => {
 
         const candidateChunks = await getCandidateChunks({
             policy_type,
-            site,
             department,
-            jurisdiction,
         });
 
         if (!candidateChunks.length) {
@@ -587,9 +590,7 @@ const askPolicyQuestionStrict = async (payload = {}) => {
                 policyType: chunk.policy_type,
                 sourceUrl: chunk.source_url,
                 version: chunk.version,
-                site: chunk.metadata?.site || null,
                 department: chunk.metadata?.department || null,
-                jurisdiction: chunk.metadata?.jurisdiction || null,
             })),
             retrievalMethod,
         };
@@ -614,17 +615,15 @@ const askPolicyQuestionStrict = async (payload = {}) => {
                 policyType: chunk.policy_type,
                 sourceUrl: chunk.source_url,
                 version: chunk.version,
-                site: chunk.metadata?.site || null,
                 department: chunk.metadata?.department || null,
-                jurisdiction: chunk.metadata?.jurisdiction || null,
             })),
             retrievalMethod,
         };
     }
 
     console.log(
-        `\x1b[36m[RAG RETRIEVAL]\x1b[0m method=${retrievalMethod} topScore=${topRetrievalScore.toFixed(4)} confidence=${retrievalConfidence} policyType=${policy_type || 'any'} site=${site || 'any'} department=${department || 'any'} jurisdiction=${jurisdiction || 'any'}`
-    );
+    `\x1b[36m[RAG RETRIEVAL]\x1b[0m method=${retrievalMethod} topScore=${topRetrievalScore.toFixed(4)} confidence=${retrievalConfidence} policyType=${policy_type || 'any'} department=${department || 'any'}`
+);
 
     const messages = buildGroundedMessages({
         question,
@@ -668,9 +667,7 @@ const askPolicyQuestionStrict = async (payload = {}) => {
             ? parsed.citations.map((citation) => ({
                 ...citation,
                 policyType: policy_type || null,
-                site,
                 department,
-                jurisdiction,
             }))
             : [],
         retrievedChunks: retrievedChunks.map((chunk) => ({
@@ -683,9 +680,7 @@ const askPolicyQuestionStrict = async (payload = {}) => {
             policyType: chunk.policy_type,
             sourceUrl: chunk.source_url,
             version: chunk.version,
-            site: chunk.metadata?.site || null,
             department: chunk.metadata?.department || null,
-            jurisdiction: chunk.metadata?.jurisdiction || null,
         })),
         retrievalMethod,
     };
@@ -700,35 +695,47 @@ const askPolicyQuestion = async (payload = {}) => {
     const {
         question,
         policy_type = null,
-        site = null,
         department = null,
-        jurisdiction = null,
-        forcePolicy = false,
+        conversationState = null,
     } = normalizedPayload;
 
     if (!question) {
         throw new Error('Question is required.');
     }
 
+    const clarificationResolution = resolveDepartmentClarification({
+        question,
+        conversationState,
+    });
+
+    if (clarificationResolution) {
+        const policyResult = await askPolicyQuestionStrict({
+            question: clarificationResolution.question,
+            policy_type,
+            department: clarificationResolution.department,
+        });
+
+        return {
+            mode: 'policy_specific',
+            ...policyResult,
+        };
+    }
+
     const hasExplicitScope =
         Boolean(policy_type) ||
-        Boolean(site) ||
-        Boolean(department) ||
-        Boolean(jurisdiction);
+        Boolean(department);
 
-    const intent = forcePolicy || hasExplicitScope
+    const intent = hasExplicitScope
         ? 'policy_specific'
         : classifyQuestionIntentHeuristically(question);
 
-    if (intent === 'general_ai') {
-        return answerGeneralQuestion({ question });
+    if (intent === 'redirect_to_policy') {
+        return buildPolicyRedirectResponse();
     }
 
-    if (intent === 'mixed') {
-        return answerMixedQuestion({ question });
-    }
-
-    const policyResult = await askPolicyQuestionStrict(normalizedPayload);
+    const policyResult = await askPolicyQuestionStrict({
+        ...normalizedPayload,
+    });
 
     return {
         mode: 'policy_specific',
