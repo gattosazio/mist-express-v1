@@ -110,6 +110,7 @@ const createAudioBridge = ({
     deepgram,
     askPolicyQuestion,
     speakText,
+    publishTranscriptEvent,
 }) => {
     const transcriptGate = createTranscriptGate();
 
@@ -245,6 +246,19 @@ const createAudioBridge = ({
                 pendingResponseTimer = null;
 
                 try {
+                    await publishTranscriptEvent({
+                        type: 'transcript',
+                        speaker: 'user',
+                        text: acceptedTranscript.cleanedTranscript,
+                        final: true,
+                        participantIdentity: participant.identity,
+                        createdAt: Date.now(),
+                    });
+                } catch (error) {
+                    console.error('\x1b[31m[TRANSCRIPT PUBLISH ERROR]\x1b[0m', error);
+                }
+
+                try {
                     let ragPayload = {
                         question: acceptedTranscript.cleanedTranscript,
                     };
@@ -292,6 +306,19 @@ const createAudioBridge = ({
                     console.log(
                         `\x1b[36m[RAG]\x1b[0m confidence=${ragResult?.confidence || 'unknown'} escalation=${Boolean(ragResult?.escalationNeeded)} clarification=${Boolean(ragResult?.needsClarification)} citations=${ragResult?.citations?.length || 0}`
                     );
+
+                    try {
+                        await publishTranscriptEvent({
+                            type: 'transcript',
+                            speaker: 'agent',
+                            text: spokenResponse,
+                            final: true,
+                            participantIdentity: 'MISSU_CORE',
+                            createdAt: Date.now(),
+                        });
+                    } catch (error) {
+                        console.error('\x1b[31m[TRANSCRIPT PUBLISH ERROR]\x1b[0m', error);
+                    }
 
                     try {
                         await logPolicyInteraction({
