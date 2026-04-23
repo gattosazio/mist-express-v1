@@ -12,6 +12,10 @@ const User = sequelize.define('User', {
         allowNull: false,
         unique: true, // No two users can have the same username
     },
+    passwordHash: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
     clearanceLevel: {
         type: DataTypes.STRING,
         allowNull: false,

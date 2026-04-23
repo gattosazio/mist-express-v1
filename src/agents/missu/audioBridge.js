@@ -5,6 +5,7 @@ const {
     AUDIO_CHANNELS,
     DEEPGRAM_KEEPALIVE_MS,
     DEEPGRAM_ENDPOINTING_MS,
+    FINAL_RESPONSE_DELAY_MS,
 } = require('./constants');
 const { createTranscriptGate } = require('./transcriptFilter');
 const { logPolicyInteraction } = require('../../apps/rag/v1/audit');
@@ -64,20 +65,8 @@ const buildSpokenResponse = (ragResult) => {
         return answer;
     }
 
-    if (ragResult.mode === 'general_ai' || ragResult.mode === 'mixed') {
-        return answer;
-    }
-
     if (ragResult.needsClarification) {
         return answer;
-    }
-
-    if (ragResult.confidence === 'low') {
-        return 'I could not verify that from the current policy context. Please escalate this for review.';
-    }
-
-    if (ragResult.escalationNeeded || ragResult.confidence === 'medium') {
-        return `Based on the available policy context, ${answer}`;
     }
 
     return answer;
@@ -129,6 +118,8 @@ const createAudioBridge = ({
     let dgLive = null;
     let keepAliveTimer = null;
     let pendingClarification = null;
+    let pendingResponseTimer = null;
+    let latestAcceptedTranscript = null;
 
     const stop = async (reason = 'stop requested') => {
         if (stopped) return;
@@ -139,6 +130,12 @@ const createAudioBridge = ({
             keepAliveTimer = null;
         }
 
+        if (pendingResponseTimer) {
+            clearTimeout(pendingResponseTimer);
+            pendingResponseTimer = null;
+        }
+
+        latestAcceptedTranscript = null;
         pendingClarification = null;
 
         if (reader) {
@@ -229,86 +226,105 @@ const createAudioBridge = ({
 
             transcriptGate.markAccepted(decision.normalizedCleanedTranscript, now);
 
-            try {
-                let ragPayload = {
-                    question: decision.cleanedTranscript,
-                };
+            latestAcceptedTranscript = {
+                cleanedTranscript: decision.cleanedTranscript,
+                timestamp: now,
+            };
 
-                const clarificationSelection = resolveClarificationSelection(
-                    decision.cleanedTranscript,
-                    pendingClarification
-                );
+            if (pendingResponseTimer) {
+                clearTimeout(pendingResponseTimer);
+            }
 
-                const clarificationOriginalQuestion = pendingClarification?.originalQuestion || null;
-
-                if (pendingClarification && clarificationSelection) {
-                    ragPayload = {
-                        question: pendingClarification.originalQuestion,
-                        [pendingClarification.clarificationType]: clarificationSelection,
-                    };
-
-                    console.log(
-                        `\x1b[36m[CLARIFICATION RESOLVED]\x1b[0m type=${pendingClarification.clarificationType} value=${clarificationSelection}`
-                    );
+            pendingResponseTimer = setTimeout(async () => {
+                if (stopped || !latestAcceptedTranscript) {
+                    return;
                 }
 
-                const ragResult = await askPolicyQuestion(ragPayload);
-
-                if (ragResult?.needsClarification) {
-                    pendingClarification = {
-                        originalQuestion: ragPayload.question,
-                        clarificationType: ragResult.clarificationType,
-                        clarificationOptions: Array.isArray(ragResult.clarificationOptions)
-                            ? ragResult.clarificationOptions
-                            : [],
-                        createdAt: now,
-                    };
-                } else {
-                    pendingClarification = null;
-                }
-
-                const missuResponse =
-                    ragResult?.answer ||
-                    'I could not verify that from the current policy context.';
-                const spokenResponse = buildSpokenResponse(ragResult);
-
-                console.log(`\x1b[35m[MISSU BRAIN]\x1b[0m ${missuResponse}`);
-                console.log(`\x1b[35m[MISSU SPOKEN]\x1b[0m ${spokenResponse}`);
-                console.log(
-                    `\x1b[36m[RAG]\x1b[0m confidence=${ragResult?.confidence || 'unknown'} escalation=${Boolean(ragResult?.escalationNeeded)} clarification=${Boolean(ragResult?.needsClarification)} citations=${ragResult?.citations?.length || 0}`
-                );
+                const acceptedTranscript = latestAcceptedTranscript;
+                latestAcceptedTranscript = null;
+                pendingResponseTimer = null;
 
                 try {
-                    await logPolicyInteraction({
-                        participantIdentity: participant.identity,
-                        query: decision.cleanedTranscript,
-                        response: missuResponse,
-                        confidence: ragResult?.confidence || 'low',
-                        escalationNeeded: Boolean(ragResult?.escalationNeeded),
-                        citations: Array.isArray(ragResult?.citations) ? ragResult.citations : [],
-                        retrievedChunks: Array.isArray(ragResult?.retrievedChunks) ? ragResult.retrievedChunks : [],
-                        policyType: ragResult?.citations?.[0]?.policyType || null,
-                        metadata: {
-                            roomParticipant: participant.identity,
-                            source: 'missu_voice_rag',
-                            spokenResponse,
-                            needsClarification: Boolean(ragResult?.needsClarification),
-                            clarificationType: ragResult?.clarificationType || null,
-                            clarificationOptions: Array.isArray(ragResult?.clarificationOptions)
+                    let ragPayload = {
+                        question: acceptedTranscript.cleanedTranscript,
+                    };
+
+                    const clarificationSelection = resolveClarificationSelection(
+                        acceptedTranscript.cleanedTranscript,
+                        pendingClarification
+                    );
+
+                    const clarificationOriginalQuestion = pendingClarification?.originalQuestion || null;
+
+                    if (pendingClarification && clarificationSelection) {
+                        ragPayload = {
+                            question: pendingClarification.originalQuestion,
+                            [pendingClarification.clarificationType]: clarificationSelection,
+                        };
+
+                        console.log(
+                            `\x1b[36m[CLARIFICATION RESOLVED]\x1b[0m type=${pendingClarification.clarificationType} value=${clarificationSelection}`
+                        );
+                    }
+
+                    const ragResult = await askPolicyQuestion(ragPayload);
+
+                    if (ragResult?.needsClarification) {
+                        pendingClarification = {
+                            originalQuestion: ragPayload.question,
+                            clarificationType: ragResult.clarificationType,
+                            clarificationOptions: Array.isArray(ragResult.clarificationOptions)
                                 ? ragResult.clarificationOptions
                                 : [],
-                            clarificationResolvedWith: clarificationSelection || null,
-                            clarificationOriginalQuestion,
-                        },
-                    });
-                } catch (auditError) {
-                    console.error('\x1b[31m[AUDIT ERROR]\x1b[0m', auditError);
-                }
+                            createdAt: Date.now(),
+                        };
+                    } else {
+                        pendingClarification = null;
+                    }
 
-                await speakText(spokenResponse);
-            } catch (error) {
-                console.error('\x1b[31m[BRAIN ERROR]\x1b[0m', error);
-            }
+                    const missuResponse =
+                        ragResult?.answer ||
+                        'I could not verify that from the current policy context.';
+                    const spokenResponse = buildSpokenResponse(ragResult);
+
+                    console.log(`\x1b[35m[MISSU BRAIN]\x1b[0m ${missuResponse}`);
+                    console.log(`\x1b[35m[MISSU SPOKEN]\x1b[0m ${spokenResponse}`);
+                    console.log(
+                        `\x1b[36m[RAG]\x1b[0m confidence=${ragResult?.confidence || 'unknown'} escalation=${Boolean(ragResult?.escalationNeeded)} clarification=${Boolean(ragResult?.needsClarification)} citations=${ragResult?.citations?.length || 0}`
+                    );
+
+                    try {
+                        await logPolicyInteraction({
+                            participantIdentity: participant.identity,
+                            query: acceptedTranscript.cleanedTranscript,
+                            response: missuResponse,
+                            confidence: ragResult?.confidence || 'low',
+                            escalationNeeded: Boolean(ragResult?.escalationNeeded),
+                            citations: Array.isArray(ragResult?.citations) ? ragResult.citations : [],
+                            retrievedChunks: Array.isArray(ragResult?.retrievedChunks) ? ragResult.retrievedChunks : [],
+                            policyType: ragResult?.citations?.[0]?.policyType || null,
+                            metadata: {
+                                roomParticipant: participant.identity,
+                                source: 'missu_voice_rag',
+                                spokenResponse,
+                                needsClarification: Boolean(ragResult?.needsClarification),
+                                clarificationType: ragResult?.clarificationType || null,
+                                clarificationOptions: Array.isArray(ragResult?.clarificationOptions)
+                                    ? ragResult.clarificationOptions
+                                    : [],
+                                clarificationResolvedWith: clarificationSelection || null,
+                                clarificationOriginalQuestion,
+                            },
+                        });
+                    } catch (auditError) {
+                        console.error('\x1b[31m[AUDIT ERROR]\x1b[0m', auditError);
+                    }
+
+                    await speakText(spokenResponse);
+                } catch (error) {
+                    console.error('\x1b[31m[BRAIN ERROR]\x1b[0m', error);
+                }
+            }, FINAL_RESPONSE_DELAY_MS);
         });
 
         await waitForDeepgramOpen(dgLive);
