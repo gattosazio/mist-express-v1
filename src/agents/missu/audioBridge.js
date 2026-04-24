@@ -111,6 +111,7 @@ const createAudioBridge = ({
     askPolicyQuestion,
     speakText,
     publishTranscriptEvent,
+    sessionContext = {},
 }) => {
     const transcriptGate = createTranscriptGate();
 
@@ -331,8 +332,12 @@ const createAudioBridge = ({
                             retrievedChunks: Array.isArray(ragResult?.retrievedChunks) ? ragResult.retrievedChunks : [],
                             policyType: ragResult?.citations?.[0]?.policyType || null,
                             metadata: {
+                                sessionId: sessionContext.sessionId || null,
+                                roomName: sessionContext.roomName || null,
+                                sessionOwnerUserId: sessionContext.ownerUserId || null,
+                                sessionOwner: sessionContext.ownerUsername || null,
                                 roomParticipant: participant.identity,
-                                source: 'missu_voice_rag',
+                                source: 'mist_voice_rag',
                                 spokenResponse,
                                 needsClarification: Boolean(ragResult?.needsClarification),
                                 clarificationType: ragResult?.clarificationType || null,

@@ -7,8 +7,24 @@ const createSession = async (req, res) => {
     } catch (error) {
         console.error('[RTC SESSION ERROR]', error);
 
-        return res.status(500).json({
+        return res.status(error.statusCode || 500).json({
             error: error.message || 'Failed to create voice session.',
+        });
+    }
+};
+
+const deleteSession = async (req, res) => {
+    try {
+        const result = await rtcService.closeVoiceSession(req.params.sessionId, req.user, {
+            reason: 'client teardown',
+        });
+
+        return res.status(200).json(result);
+    } catch (error) {
+        console.error('[RTC TEARDOWN ERROR]', error);
+
+        return res.status(error.statusCode || 500).json({
+            error: error.message || 'Failed to close voice session.',
         });
     }
 };
@@ -19,5 +35,6 @@ const getToken = async (req, res) => {
 
 module.exports = {
     createSession,
+    deleteSession,
     getToken,
 };
