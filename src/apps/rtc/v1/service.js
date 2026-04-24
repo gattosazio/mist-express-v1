@@ -3,8 +3,15 @@ const { AccessToken } = require('livekit-server-sdk');
 
 const env = require('../../../config/env');
 const { ensureAgentSession, shutdownAgentSession } = require('../../../agents/missu/worker');
+const { logRtcSessionEvent } = require('./audit');
 
 const activeVoiceSessions = new Map();
+
+const buildHttpError = (message, statusCode) => {
+    const error = new Error(message);
+    error.statusCode = statusCode;
+    return error;
+};
 
 const buildRoomName = (sessionId) => `mist-session-${sessionId}`;
 
@@ -23,6 +30,11 @@ const buildAccessToken = async ({ roomName, participantIdentity, user }) => {
     const token = new AccessToken(env.livekit.apiKey, env.livekit.apiSecret, {
         identity: String(participantIdentity),
         name: String(user?.username || participantIdentity),
+        metadata: JSON.stringify({
+            roomName,
+            username: user?.username || null,
+            role: 'user',
+        }),
     });
 
     token.ttl = '15m';
@@ -38,9 +50,56 @@ const buildAccessToken = async ({ roomName, participantIdentity, user }) => {
     return await token.toJwt();
 };
 
+const isSessionOwner = (session, user) => {
+    if (!session || !user) {
+        return false;
+    }
+
+    if (session.ownerUserId && user.id) {
+        return String(session.ownerUserId) === String(user.id);
+    }
+
+    return String(session.ownerUsername || '').toLowerCase() === String(user.username || '').toLowerCase();
+};
+
+const getOwnedSessionOrThrow = (sessionId, user) => {
+    const session = activeVoiceSessions.get(sessionId);
+
+    if (!session || !isSessionOwner(session, user)) {
+        throw buildHttpError('Voice session not found.', 404);
+    }
+
+    return session;
+};
+
+const markSessionClosed = (sessionId, reason) => {
+    const session = activeVoiceSessions.get(sessionId);
+
+    if (!session || session.status === 'closed') {
+        return session || null;
+    }
+
+    session.status = 'closed';
+    session.endedAt = new Date().toISOString();
+    session.endReason = reason;
+    activeVoiceSessions.set(sessionId, session);
+
+    logRtcSessionEvent({
+        event: 'session_closed',
+        sessionId: session.sessionId,
+        roomName: session.roomName,
+        username: session.ownerUsername,
+        participantIdentity: session.participantIdentity,
+        status: session.status,
+        reason,
+    });
+
+    return session;
+};
+
 const createVoiceSession = async (user) => {
     if (!user?.username) {
-        throw new Error('Authenticated user is required to create a voice session.');
+        throw buildHttpError('Authenticated user is required to create a voice session.', 401);
     }
 
     const sessionId = crypto.randomUUID();
@@ -51,59 +110,109 @@ const createVoiceSession = async (user) => {
         sessionId,
         roomName,
         participantIdentity,
-        userId: user.id || null,
-        username: user.username,
+        ownerUserId: user.id || null,
+        ownerUsername: user.username,
+        status: 'creating',
         startedAt: new Date().toISOString(),
         endedAt: null,
         endReason: null,
-        status: 'active',
     };
 
     activeVoiceSessions.set(sessionId, sessionRecord);
 
-    await ensureAgentSession(roomName, {
-        sessionId,
-        ownerUsername: user.username,
-        onSessionClosed: (reason = 'agent session closed') => {
-            const current = activeVoiceSessions.get(sessionId);
-            if (!current || current.status === 'closed') {
-                return;
-            }
-
-            current.status = 'closed';
-            current.endedAt = new Date().toISOString();
-            current.endReason = reason;
-            activeVoiceSessions.set(sessionId, current);
-        },
-    });
-
-    const token = await buildAccessToken({
-        roomName,
-        participantIdentity,
-        user,
-    });
-
-    return {
+    logRtcSessionEvent({
+        event: 'session_created',
         sessionId,
         roomName,
+        username: user.username,
         participantIdentity,
-        token,
-    };
-};
+        status: sessionRecord.status,
+    });
 
-const closeVoiceSession = async (sessionId, user) => {
-    const session = activeVoiceSessions.get(sessionId);
+    try {
+        await ensureAgentSession(roomName, {
+            sessionId,
+            ownerUserId: user.id || null,
+            ownerUsername: user.username,
+            onSessionOnline: () => {
+                const current = activeVoiceSessions.get(sessionId);
+                if (!current || current.status === 'closed') {
+                    return;
+                }
 
-    if (!session) {
+                current.status = 'active';
+                activeVoiceSessions.set(sessionId, current);
+
+                logRtcSessionEvent({
+                    event: 'agent_session_ready',
+                    sessionId,
+                    roomName,
+                    username: current.ownerUsername,
+                    participantIdentity: current.participantIdentity,
+                    status: current.status,
+                });
+            },
+            onSessionClosed: (reason = 'agent session closed') => {
+                markSessionClosed(sessionId, reason);
+            },
+        });
+
+        const token = await buildAccessToken({
+            roomName,
+            participantIdentity,
+            user,
+        });
+
+        logRtcSessionEvent({
+            event: 'session_token_issued',
+            sessionId,
+            roomName,
+            username: user.username,
+            participantIdentity,
+            status: 'active',
+        });
+
         return {
             sessionId,
-            status: 'not_found',
+            roomName,
+            participantIdentity,
+            token,
         };
-    }
+    } catch (error) {
+        const current = activeVoiceSessions.get(sessionId);
+        if (current) {
+            current.status = 'failed';
+            current.endedAt = new Date().toISOString();
+            current.endReason = error.message || 'session creation failed';
+            activeVoiceSessions.set(sessionId, current);
+        }
 
-    if (session.username !== user?.username) {
-        throw new Error('You are not allowed to close this voice session.');
+        logRtcSessionEvent({
+            event: 'session_create_failed',
+            sessionId,
+            roomName,
+            username: user.username,
+            participantIdentity,
+            status: 'failed',
+            reason: error.message || 'session creation failed',
+        });
+
+        throw error;
     }
+};
+
+const closeVoiceSession = async (sessionId, user, options = {}) => {
+    const session = getOwnedSessionOrThrow(sessionId, user);
+
+    logRtcSessionEvent({
+        event: 'session_close_requested',
+        sessionId: session.sessionId,
+        roomName: session.roomName,
+        username: session.ownerUsername,
+        participantIdentity: session.participantIdentity,
+        status: session.status,
+        reason: options.reason || 'client teardown',
+    });
 
     if (session.status === 'closed') {
         return {
@@ -115,16 +224,16 @@ const closeVoiceSession = async (sessionId, user) => {
         };
     }
 
-    await shutdownAgentSession(session.roomName, 'client teardown');
+    await shutdownAgentSession(session.roomName, options.reason || 'client teardown');
 
-    const updated = activeVoiceSessions.get(sessionId) || session;
+    const updatedSession = activeVoiceSessions.get(sessionId) || session;
 
     return {
         sessionId,
-        roomName: updated.roomName,
-        status: updated.status || 'closed',
-        endedAt: updated.endedAt,
-        endReason: updated.endReason,
+        roomName: updatedSession.roomName,
+        status: updatedSession.status || 'closed',
+        endedAt: updatedSession.endedAt,
+        endReason: updatedSession.endReason,
     };
 };
 

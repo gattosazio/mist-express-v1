@@ -125,8 +125,10 @@ const ensureAgentSession = async (roomName, sessionConfig = {}) => {
         audioSessions,
         ttsPipeline: null,
         shutdownTimer: null,
+        onSessionOnline: sessionConfig.onSessionOnline || null,
         onSessionClosed: sessionConfig.onSessionClosed || null,
         sessionId: sessionConfig.sessionId || null,
+        ownerUserId: sessionConfig.ownerUserId || null,
         ownerUsername: sessionConfig.ownerUsername || null,
         ready: null,
     };
@@ -139,6 +141,14 @@ const ensureAgentSession = async (roomName, sessionConfig = {}) => {
 
         session.ttsPipeline = await initTtsPipeline(room, deepgram);
         console.log(`\x1b[35m[TTS ONLINE]\x1b[0m room=${roomName}`);
+
+        if (typeof session.onSessionOnline === 'function') {
+            try {
+                session.onSessionOnline();
+            } catch (error) {
+                console.error('\x1b[31m[SESSION ONLINE CALLBACK ERROR]\x1b[0m', error);
+            }
+        }
 
         const publishTranscriptEvent = async (event) => {
             try {
@@ -209,6 +219,7 @@ const ensureAgentSession = async (roomName, sessionConfig = {}) => {
                 sessionContext: {
                     sessionId: session.sessionId,
                     roomName,
+                    ownerUserId: session.ownerUserId,
                     ownerUsername: session.ownerUsername,
                 },
             });

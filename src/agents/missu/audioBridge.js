@@ -334,6 +334,7 @@ const createAudioBridge = ({
                             metadata: {
                                 sessionId: sessionContext.sessionId || null,
                                 roomName: sessionContext.roomName || null,
+                                sessionOwnerUserId: sessionContext.ownerUserId || null,
                                 sessionOwner: sessionContext.ownerUsername || null,
                                 roomParticipant: participant.identity,
                                 source: 'mist_voice_rag',
