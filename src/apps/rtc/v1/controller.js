@@ -13,11 +13,30 @@ const createSession = async (req, res) => {
     }
 };
 
+const deleteSession = async (req, res) => {
+    try {
+        const result = await rtcService.closeVoiceSession(req.params.sessionId, req.user);
+        return res.status(200).json(result);
+    } catch (error) {
+        console.error('[RTC TEARDOWN ERROR]', error);
+
+        const statusCode =
+            error.message === 'You are not allowed to close this voice session.'
+                ? 403
+                : 500;
+
+        return res.status(statusCode).json({
+            error: error.message || 'Failed to close voice session.',
+        });
+    }
+};
+
 const getToken = async (req, res) => {
     return createSession(req, res);
 };
 
 module.exports = {
     createSession,
+    deleteSession,
     getToken,
 };

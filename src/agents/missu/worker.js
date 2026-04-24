@@ -35,7 +35,7 @@ const buildAgentToken = async (roomName) => {
         canPublishData: true,
     });
 
-    return agentToken.toJwt();
+    return await agentToken.toJwt();
 };
 
 const getDeepgramClient = () => {
@@ -46,9 +46,7 @@ const getDeepgramClient = () => {
     return deepgramClient;
 };
 
-const hasRemoteUsers = (room) => {
-    return room.remoteParticipants.size > 0;
-};
+const hasRemoteUsers = (room) => room.remoteParticipants.size > 0;
 
 const shutdownAgentSession = async (roomName, reason = 'shutdown requested') => {
     const session = activeAgentSessions.get(roomName);
@@ -78,6 +76,14 @@ const shutdownAgentSession = async (roomName, reason = 'shutdown requested') => 
 
     await session.room.disconnect();
 
+    if (typeof session.onSessionClosed === 'function') {
+        try {
+            session.onSessionClosed(reason);
+        } catch (error) {
+            console.error('\x1b[31m[SESSION CLOSE CALLBACK ERROR]\x1b[0m', error);
+        }
+    }
+
     console.log(`\x1b[33m[AGENT SESSION CLOSED]\x1b[0m room=${roomName} reason=${reason}`);
 };
 
@@ -102,7 +108,7 @@ const scheduleIdleShutdown = (roomName) => {
     }, AGENT_SESSION_IDLE_TIMEOUT_MS);
 };
 
-const ensureAgentSession = async (roomName) => {
+const ensureAgentSession = async (roomName, sessionConfig = {}) => {
     const existingSession = activeAgentSessions.get(roomName);
 
     if (existingSession) {
@@ -119,6 +125,9 @@ const ensureAgentSession = async (roomName) => {
         audioSessions,
         ttsPipeline: null,
         shutdownTimer: null,
+        onSessionClosed: sessionConfig.onSessionClosed || null,
+        sessionId: sessionConfig.sessionId || null,
+        ownerUsername: sessionConfig.ownerUsername || null,
         ready: null,
     };
 
@@ -197,6 +206,11 @@ const ensureAgentSession = async (roomName) => {
                 askPolicyQuestion,
                 speakText: session.ttsPipeline.speakText,
                 publishTranscriptEvent,
+                sessionContext: {
+                    sessionId: session.sessionId,
+                    roomName,
+                    ownerUsername: session.ownerUsername,
+                },
             });
 
             audioSessions.set(participant.identity, audioSession);
@@ -232,6 +246,12 @@ const ensureAgentSession = async (roomName) => {
         try {
             await room.disconnect();
         } catch {}
+
+        if (typeof session.onSessionClosed === 'function') {
+            try {
+                session.onSessionClosed('agent connect failed');
+            } catch {}
+        }
 
         throw error;
     });
