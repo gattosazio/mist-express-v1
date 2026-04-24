@@ -81,7 +81,9 @@ src/
 └── scripts/
     └── backfill-document-chunk-embeddings.js
 
-✨ Core Features
+---
+
+##    ✨ Core Features
 Real-Time Voice Assistant: Joins LiveKit rooms, listens, transcribes, grounds answers, and speaks.
 
 Advanced Transcript Filtering: Includes wake-word support, minimum length checks, duplicate suppression, and cooldown logic.
@@ -92,7 +94,9 @@ Semantic RAG Retrieval: Ingests policies, creates chunks, and utilizes Ollama em
 
 Enterprise Audit Logging: Records participant identity, queries, grounded answers, confidence scores, escalation flags, citations, and metadata.
 
-🚀 Getting Started
+---
+
+## 🚀 Getting Started
 1. Environment Variables
 Create a .env file in the root of your project:
 
@@ -119,7 +123,7 @@ OLLAMA_EMBED_MODEL=embeddinggemma
 Note: Qdrant is included for future architecture but is currently bypassed in favor of pgvector.
 
 
-```text
+
 version: '3.8'
 
 services:
@@ -152,7 +156,7 @@ volumes:
 
 
 
-  3. Installation & Startup
+3. Installation & Startup
 Install Node Dependencies:
 
 
@@ -173,9 +177,10 @@ Pull the model: ollama pull embeddinggemma
 
 Start the Server:
 
+---
 
 npm run dev
-📖 API Reference
+## 📖 API Reference
 RAG: Ingest Policy Document
 POST /api/rag/v1/ingest
 
@@ -225,8 +230,9 @@ Example Response:
   "retrievalMethod": "semantic"
 }
 
+---
 
-🛠️ Useful Commands & SQL
+## 🛠️ Useful Commands & SQL
 Node & Docker Commands
 
 
@@ -252,7 +258,9 @@ SQL
 SELECT id, participant_identity, query, response, confidence, escalation_needed
 FROM audit_logs ORDER BY created_at DESC LIMIT 10;
 
-🎯 Development Roadmap
+---
+
+## 🎯 Development Roadmap
 Current Status: MISSU is currently a fully functional, voice-enabled, policy-grounded, semantically retrieving, and auditable institutional assistant.
 
 Immediate Next Steps
