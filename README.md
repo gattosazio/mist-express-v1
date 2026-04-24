@@ -1,8 +1,6 @@
-# MISSU Express Backend
+# MIST Express Backend
 
-**MISSU** stands for **Institutional Model for Integrated Safety & Security Understanding.**
-
-MISSU is a voice-enabled, policy-aware institutional assistant designed for enterprise environments where policy mistakes can create legal, safety, operational, or security risks. Instead of behaving like a generic chatbot, MISSU retrieves policy evidence, generates grounded answers, speaks them in real-time, and securely records interactions for strict auditability.
+MIST is a voice-enabled, policy-aware institutional assistant designed for enterprise environments where policy mistakes can create legal, safety, operational, or security risks. Instead of behaving like a generic chatbot, MISSU retrieves policy evidence, generates grounded answers, speaks them in real-time, and securely records interactions for strict auditability.
 
 ---
 
