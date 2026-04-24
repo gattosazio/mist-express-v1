@@ -1,15 +1,23 @@
 const rtcService = require('./service');
 
-const getToken = async (req, res) => {
+const createSession = async (req, res) => {
     try {
-        const { username } = req.user; 
-        const token = await rtcService.generateLiveKitToken(username, 'missu-terminal');
-        res.status(200).json({ token });
+        const session = await rtcService.createVoiceSession(req.user);
+        return res.status(200).json(session);
     } catch (error) {
-        res.status(500).json({ 
-            error: 'Failed to generate voice room ticket.' 
+        console.error('[RTC SESSION ERROR]', error);
+
+        return res.status(500).json({
+            error: error.message || 'Failed to create voice session.',
         });
     }
 };
 
-module.exports = { getToken };
+const getToken = async (req, res) => {
+    return createSession(req, res);
+};
+
+module.exports = {
+    createSession,
+    getToken,
+};
