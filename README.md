@@ -6,7 +6,7 @@ MIST is a voice-enabled, policy-aware institutional assistant designed for enter
 
 ## 🧠 System Architecture & Workflow
 
-MISSU acts as a secure backend participant in a real-time audio room. The current voice and data flow operates as follows:
+MIST acts as a secure backend participant in a real-time audio room. The current voice and data flow operates as follows:
 
 1. **User Voice** streams into LiveKit.
 2. **LiveKit** routes audio to the MISSU backend worker.
