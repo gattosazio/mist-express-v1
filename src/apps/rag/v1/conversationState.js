@@ -3,6 +3,9 @@ const buildConversationState = ({
     pendingClarification = null,
     lastResolvedPolicyType = null,
     lastResolvedDepartment = null,
+    lastAnswer = null,
+    lastCitations = [],
+    lastRetrievedChunks = [],
 } = {}) => {
     if (!lastPolicyQuestion) {
         return null;
@@ -13,6 +16,11 @@ const buildConversationState = ({
         pendingClarification,
         lastResolvedPolicyType: lastResolvedPolicyType || null,
         lastResolvedDepartment: lastResolvedDepartment || null,
+        lastAnswer: lastAnswer || null,
+        lastCitations: Array.isArray(lastCitations) ? lastCitations : [],
+        lastRetrievedChunks: Array.isArray(lastRetrievedChunks)
+            ? lastRetrievedChunks
+            : [],
     };
 };
 
@@ -42,6 +50,7 @@ const updateConversationStateFromTurn = ({
 
     return buildConversationState({
         lastPolicyQuestion:
+            turn?.stateQuestion ||
             turn?.normalizedQuestion ||
             previousState?.lastPolicyQuestion ||
             null,
@@ -56,6 +65,22 @@ const updateConversationStateFromTurn = ({
             turn?.department ??
             previousState?.lastResolvedDepartment ??
             null,
+        lastAnswer:
+            response?.needsClarification
+                ? previousState?.lastAnswer || null
+                : response?.answer || previousState?.lastAnswer || null,
+        lastCitations:
+            response?.needsClarification
+                ? previousState?.lastCitations || []
+                : Array.isArray(response?.citations)
+                    ? response.citations
+                    : previousState?.lastCitations || [],
+        lastRetrievedChunks:
+            response?.needsClarification
+                ? previousState?.lastRetrievedChunks || []
+                : Array.isArray(response?.retrievedChunks)
+                    ? response.retrievedChunks
+                    : previousState?.lastRetrievedChunks || [],
     });
 };
 
@@ -64,7 +89,7 @@ const attachConversationState = ({
     turn,
     previousState = null,
 }) => {
-    return {
+    return { 
         ...response,
         conversationState: updateConversationStateFromTurn({
             turn,

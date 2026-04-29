@@ -79,9 +79,37 @@ const DOMAIN_RULES = [
         preferredPolicyTypes: ['remote_work', 'compliance', 'security'],
     },
     {
+        name: 'work_schedule_attendance',
+        patterns: [
+            'overtime',
+            'late',
+            'absent',
+            'absence',
+            'attendance',
+            'tardiness',
+            'shift',
+            'shifts',
+            'timekeeping',
+            'undertime',
+        ],
+        preferredPolicyTypes: [
+            'work_schedule_attendance',
+            'hr',
+        ],
+    },
+    {
         name: 'approval',
-        patterns: ['approve', 'approves', 'approval', 'approver', 'who approves'],
-        preferredPolicyTypes: ['remote_work', 'leave', 'compliance'],
+        patterns: [
+            'leave approval',
+            'approves leave',
+            'approve leave',
+            'remote work approval',
+            'approves remote work',
+            'approve remote work',
+            'approver for leave',
+            'approver for remote work',
+        ],
+        preferredPolicyTypes: ['leave', 'remote_work', 'compliance'],
     },
     {
         name: 'leave',
@@ -311,10 +339,12 @@ const buildResolvedTurn = ({
     explicitPolicyType = false,
     explicitDepartment = false,
     suppressClarification = false,
+    stateQuestion = null,
 }) => {
     return {
         originalQuestion: question,
         normalizedQuestion,
+        stateQuestion: stateQuestion || normalizedQuestion,
         isPolicyQuestion: true,
         isFollowUp,
         policyType,
@@ -631,6 +661,7 @@ const buildFollowUpFromContext = ({
     return buildResolvedTurn({
         question,
         normalizedQuestion,
+        stateQuestion: baseQuestion,
         policyType,
         department,
         isFollowUp: true,

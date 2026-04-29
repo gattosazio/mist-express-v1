@@ -20,8 +20,86 @@ const {
 
 const formatPolicyTypeOption = (value) => String(value || '').replace(/_/g, ' ');
 
+const QUESTION_SPECIFICITY_TERMS = [
+    'probation',
+    'probationary',
+    'regularization',
+    'allowance',
+    'allowances',
+    'benefit',
+    'benefits',
+    'payroll',
+    'salary',
+    'leave',
+    'remote work',
+    'remote',
+    'attendance',
+    'overtime',
+    'complaint',
+    'grievance',
+    'disciplinary',
+    'resignation',
+    'clearance',
+    'training',
+    'performance',
+    'reimbursement',
+];
+
 const uniqueValues = (values = []) => {
     return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+};
+
+const hasStrongQuestionSpecificity = (question = '') => {
+    const normalized = normalizeForMatch(question);
+
+    if (!normalized) {
+        return false;
+    }
+
+    return QUESTION_SPECIFICITY_TERMS.some((term) =>
+        normalized.includes(normalizeForMatch(term))
+    );
+};
+
+const hasDominantPolicyType = (retrievedChunks = []) => {
+    const topChunks = retrievedChunks.slice(0, 3);
+
+    if (topChunks.length < 2) {
+        return true;
+    }
+
+    const topScore = Number(topChunks[0]?.retrieval_score || 0);
+    const secondScore = Number(topChunks[1]?.retrieval_score || 0);
+
+    if (topScore >= secondScore + 0.2) {
+        return true;
+    }
+
+    const scoresByPolicyType = new Map();
+
+    for (const chunk of topChunks) {
+        const policyType = formatPolicyTypeOption(chunk.policy_type || '');
+
+        if (!policyType) {
+            continue;
+        }
+
+        scoresByPolicyType.set(
+            policyType,
+            (scoresByPolicyType.get(policyType) || 0) +
+                Number(chunk.retrieval_score || 0)
+        );
+    }
+
+    const rankedPolicyTypes = Array.from(scoresByPolicyType.entries()).sort(
+        (a, b) => b[1] - a[1]
+    );
+
+    if (rankedPolicyTypes.length < 2) {
+        return true;
+    }
+
+    return rankedPolicyTypes[0][1] >= rankedPolicyTypes[1][1] + 0.2;
 };
 
 const getAvailablePolicyTypes = async () => {
@@ -118,6 +196,7 @@ const getCandidateChunks = async ({
 };
 
 const buildClarificationFromChunks = ({
+    normalizedQuestion = '',
     retrievedChunks = [],
     explicitPolicyType = false,
     explicitDepartment = false,
@@ -133,7 +212,11 @@ const buildClarificationFromChunks = ({
             topChunks.map((chunk) => chunk.policy_type).map(formatPolicyTypeOption)
         );
 
-        if (policyTypes.length > 1) {
+        if (
+            policyTypes.length > 1 &&
+            !hasStrongQuestionSpecificity(normalizedQuestion) &&
+            !hasDominantPolicyType(topChunks)
+        ) {
             return {
                 needsClarification: true,
                 clarificationType: 'policy_type',
@@ -395,6 +478,7 @@ const retrievePolicyContext = async ({
     const clarification = suppressClarification
         ? null
         : buildClarificationFromChunks({
+              normalizedQuestion,
               retrievedChunks,
               explicitPolicyType,
               explicitDepartment,
@@ -410,6 +494,7 @@ const retrievePolicyContext = async ({
         })
     ) {
         const fallbackClarification = buildClarificationFromChunks({
+            normalizedQuestion,
             retrievedChunks,
             explicitPolicyType: false,
             explicitDepartment: false,
