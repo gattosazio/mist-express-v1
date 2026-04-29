@@ -31,6 +31,11 @@ const Document = sequelize.define('Document', {
         type: DataTypes.STRING,
         allowNull: true,
     },
+    metadata: {
+        type: DataTypes.JSONB,
+        allowNull: true,
+        defaultValue: {},
+    },
     created_at: {
         type: DataTypes.DATE,
         allowNull: false,
@@ -44,7 +49,7 @@ const Document = sequelize.define('Document', {
 }, {
     tableName: 'documents',
     timestamps: true,
-    underscored: true, 
+    underscored: true,
 });
 
 module.exports = Document;
