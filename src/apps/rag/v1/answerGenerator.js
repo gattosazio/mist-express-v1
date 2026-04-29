@@ -46,6 +46,80 @@ const chunkTextForMatch = (chunk = {}) =>
             .join(' ')
     );
 
+const hasExplicitScopeEvidence = (question = '', retrievedChunks = []) => {
+    const normalizedQuestion = normalizeForMatch(question);
+    const topChunks = retrievedChunks.slice(0, 3);
+
+    const genericScopeTerms = [
+        'explicit',
+        'specifically',
+        'all departments',
+        'company-wide',
+        'company wide',
+        'all restricted areas',
+        'employees',
+        'full-time employees',
+        'part-time employees',
+        'probationary employees',
+        'departments may',
+    ];
+
+    const questionSpecificTerms = [];
+
+    if (
+        normalizedQuestion.includes('all employees') ||
+        normalizedQuestion.includes('every employee')
+    ) {
+        questionSpecificTerms.push(
+            'employees',
+            'full-time employees',
+            'part-time employees',
+            'probationary employees'
+        );
+    }
+
+    if (
+        normalizedQuestion.includes('department') ||
+        normalizedQuestion.includes('shift')
+    ) {
+        questionSpecificTerms.push(
+            'departments may',
+            'shift schedules',
+            'different shift schedules',
+            'outside standard office hours'
+        );
+    }
+
+    if (
+        normalizedQuestion.includes('late') ||
+        normalizedQuestion.includes('absent') ||
+        normalizedQuestion.includes('notify')
+    ) {
+        questionSpecificTerms.push(
+            'notify',
+            'immediate supervisor',
+            'before the start of the shift',
+            'corrective action'
+        );
+    }
+
+    if (normalizedQuestion.includes('overtime')) {
+        questionSpecificTerms.push(
+            'overtime',
+            'approved in advance',
+            'immediate supervisor',
+            'time-off in lieu'
+        );
+    }
+
+    const evidenceTerms = [...new Set([...genericScopeTerms, ...questionSpecificTerms])];
+
+    return topChunks.some((chunk) => {
+        const text = chunkTextForMatch(chunk);
+        return evidenceTerms.some((term) => text.includes(term));
+    });
+};
+
 const requiresStricterEvidence = (question = '') => {
     const normalized = normalizeForMatch(question);
 
@@ -203,17 +277,7 @@ const hasDirectEvidence = (question = '', retrievedChunks = []) => {
             return true;
         }
 
-        return topChunks.some((chunk) => {
-            const text = chunkTextForMatch(chunk);
-            return (
-                text.includes('explicit') ||
-                text.includes('specifically') ||
-                text.includes('all departments') ||
-                text.includes('company-wide') ||
-                text.includes('company wide') ||
-                text.includes('all restricted areas')
-            );
-        });
+        return hasExplicitScopeEvidence(question, topChunks);
     }
 
     const hasDomainEvidence = topChunks.some((chunk) => {
@@ -229,17 +293,7 @@ const hasDirectEvidence = (question = '', retrievedChunks = []) => {
         return true;
     }
 
-    return topChunks.some((chunk) => {
-        const text = chunkTextForMatch(chunk);
-        return (
-            text.includes('explicit') ||
-            text.includes('specifically') ||
-            text.includes('all departments') ||
-            text.includes('company-wide') ||
-            text.includes('company wide') ||
-            text.includes('all restricted areas')
-        );
-    });
+    return hasExplicitScopeEvidence(question, topChunks);
 };
 
 const generateGroundedAnswer = async ({
