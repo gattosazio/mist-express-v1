@@ -14,6 +14,7 @@ const ensureVectorSchema = async () => {
                 CREATE TABLE IF NOT EXISTS document_chunk_embeddings (
                     chunk_id INTEGER PRIMARY KEY REFERENCES document_chunks(id) ON DELETE CASCADE,
                     document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                    network_id INTEGER,
                     embedding vector NOT NULL,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -21,8 +22,26 @@ const ensureVectorSchema = async () => {
             `);
 
             await sequelize.query(`
+                ALTER TABLE document_chunk_embeddings
+                ADD COLUMN IF NOT EXISTS network_id INTEGER;
+            `);
+
+            await sequelize.query(`
+                UPDATE document_chunk_embeddings e
+                SET network_id = d.network_id
+                FROM documents d
+                WHERE d.id = e.document_id
+                  AND e.network_id IS NULL;
+            `);
+
+            await sequelize.query(`
                 CREATE INDEX IF NOT EXISTS idx_document_chunk_embeddings_document_id
                 ON document_chunk_embeddings (document_id);
+            `);
+
+            await sequelize.query(`
+                CREATE INDEX IF NOT EXISTS idx_document_chunk_embeddings_network_id
+                ON document_chunk_embeddings (network_id);
             `);
         })();
     }
@@ -30,16 +49,17 @@ const ensureVectorSchema = async () => {
     return ensureVectorSchemaPromise;
 };
 
-const upsertChunkEmbedding = async ({ chunkId, documentId, embedding }) => {
+const upsertChunkEmbedding = async ({ chunkId, documentId, networkId, embedding }) => {
     await ensureVectorSchema();
 
     await sequelize.query(
         `
-        INSERT INTO document_chunk_embeddings (chunk_id, document_id, embedding, created_at, updated_at)
-        VALUES (:chunkId, :documentId, CAST(:embedding AS vector), NOW(), NOW())
+        INSERT INTO document_chunk_embeddings (chunk_id, document_id, network_id, embedding, created_at, updated_at)
+        VALUES (:chunkId, :documentId, :networkId, CAST(:embedding AS vector), NOW(), NOW())
         ON CONFLICT (chunk_id)
         DO UPDATE SET
             document_id = EXCLUDED.document_id,
+            network_id = EXCLUDED.network_id,
             embedding = EXCLUDED.embedding,
             updated_at = NOW();
         `,
@@ -47,6 +67,7 @@ const upsertChunkEmbedding = async ({ chunkId, documentId, embedding }) => {
             replacements: {
                 chunkId,
                 documentId,
+                networkId,
                 embedding: pgvector.toSql(embedding),
             },
         }
@@ -112,7 +133,8 @@ const searchSemanticChunks = async ({
         FROM document_chunk_embeddings e
         INNER JOIN document_chunks c ON c.id = e.chunk_id
         INNER JOIN current_documents d ON d.id = e.document_id
-        WHERE (:site IS NULL OR c.metadata->>'site' = :site)
+        WHERE e.network_id = :networkId
+          AND (:site IS NULL OR c.metadata->>'site' = :site)
           AND (:department IS NULL OR c.metadata->>'department' = :department)
           AND (:jurisdiction IS NULL OR c.metadata->>'jurisdiction' = :jurisdiction)
           AND 1 - (e.embedding <=> CAST(:queryEmbedding AS vector)) >= :minSimilarity

@@ -13,7 +13,7 @@ const Document = sequelize.define('Document', {
     },
     network_id: {
         type: DataTypes.INTEGER,
-        allowNull: true,
+        allowNull: false,
     },
     source_url: {
         type: DataTypes.STRING,

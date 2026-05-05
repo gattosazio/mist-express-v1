@@ -157,6 +157,7 @@ const ingestDocument = async (payload = {}) => {
             createdChunks.map((chunk, index) => ({
                 chunkId: chunk.id,
                 documentId: document.id,
+                networkId,
                 embedding: embeddings[index],
             }))
         );
