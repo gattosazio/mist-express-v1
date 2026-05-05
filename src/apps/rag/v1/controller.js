@@ -3,7 +3,10 @@ const { extractDocumentText } = require('./extractor');
 
 const ingestDocument = async (req, res) => {
     try {
-        const result = await ragService.ingestDocument(req.body || {});
+        const result = await ragService.ingestDocument({
+            ...(req.body || {}),
+            networkId: req.network.id,
+        });
 
         res.status(201).json({
             message: 'Document ingested successfully.',
@@ -23,6 +26,7 @@ const ingestDocumentFile = async (req, res) => {
         const result = await ragService.ingestDocument({
             title: req.body?.title,
             department: req.body?.department,
+            networkId: req.network.id,
             policy_type: req.body?.policy_type || null,
             version: req.body?.version || null,
             effective_date: req.body?.effective_date || null,
@@ -50,7 +54,10 @@ const ingestDocumentFile = async (req, res) => {
 
 const askPolicyQuestion = async (req, res) => {
     try {
-        const result = await ragService.askPolicyQuestion(req.body || {});
+        const result = await ragService.askPolicyQuestion({
+            ...(req.body || {}),
+            networkId: req.network.id,
+        });
 
         res.status(200).json(result);
     } catch (error) {

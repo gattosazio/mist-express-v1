@@ -60,6 +60,7 @@ const upsertChunkEmbeddings = async (rows = []) => {
 };
 
 const searchSemanticChunks = async ({
+    networkId,
     embedding,
     policyType = null,
     site = null,
@@ -86,6 +87,7 @@ const searchSemanticChunks = async ({
                 d.updated_at
             FROM documents d
             WHERE d.status IN ('active', 'published')
+              AND d.network_id = :networkId
               AND (d.effective_date IS NULL OR d.effective_date <= NOW())
               AND (:policyType IS NULL OR d.policy_type = :policyType)
             ORDER BY
@@ -120,6 +122,7 @@ const searchSemanticChunks = async ({
         {
             replacements: {
                 queryEmbedding: pgvector.toSql(embedding),
+                networkId,
                 policyType,
                 site,
                 department,

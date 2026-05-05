@@ -1,61 +1,36 @@
-const passport = require('passport');
-const authService = require('./service');
+const { buildMembershipPayload } = require('../../../services/authContext');
 
-const login = async (req, res, next) => {
-    passport.authenticate('local', { session: false }, async (error, user, info) => {
-        try {
-            if (error) {
-                return next(error);
-            }
-
-            if (!user) {
-                return res.status(401).json({
-                    error: info?.message || 'Invalid username or password.',
-                });
-            }
-
-            const result = authService.buildLoginResponse(user);
-
-            return res.status(200).json({
-                message: 'Authentication successful',
-                ...result,
-            });
-        } catch (err) {
-            return next(err);
-        }
-    })(req, res, next);
+const login = async (req, res) => {
+    return res.status(410).json({
+        error: 'Local login is deprecated. Authenticate with Supabase and send the Supabase bearer token to this API.',
+    });
 };
 
 const register = async (req, res) => {
-    try {
-        const { username, password, clearanceLevel } = req.body;
+    return res.status(410).json({
+        error: 'Local registration is deprecated. Provision identities in Supabase instead.',
+    });
+};
 
-        const result = await authService.registerUser({
-            username,
-            password,
-            clearanceLevel,
-        });
-
-        res.status(201).json({
-            message: 'User registered successfully',
-            ...result,
-        });
-    } catch (error) {
-        console.error('[AUTH ERROR]', error.message);
-
-        if (
-            error.message === 'Username is required.' ||
-            error.message === 'Password must be at least 8 characters long.' ||
-            error.message === 'Username already exists.'
-        ) {
-            return res.status(400).json({ error: error.message });
-        }
-
-        res.status(500).json({ error: 'Internal server error during registration.' });
-    }
+const getSession = async (req, res) => {
+    return res.status(200).json({
+        user: req.user,
+        network: req.network
+            ? {
+                  id: req.network.id,
+                  name: req.network.name,
+                  slug: req.network.slug,
+                  role: req.membership?.role || null,
+              }
+            : null,
+        memberships: Array.isArray(req.memberships)
+            ? req.memberships.map(buildMembershipPayload)
+            : [],
+    });
 };
 
 module.exports = {
     login,
     register,
+    getSession,
 };

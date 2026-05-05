@@ -24,40 +24,49 @@ const uniqueValues = (values = []) => {
     return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
 };
 
-const getAvailablePolicyTypes = async () => {
+const getAvailablePolicyTypes = async (networkId) => {
     const rows = await sequelize.query(
         `
         SELECT DISTINCT policy_type
         FROM documents
         WHERE status IN ('active', 'published')
+          AND network_id = :networkId
           AND policy_type IS NOT NULL
           AND TRIM(policy_type) <> ''
         ORDER BY policy_type ASC;
         `,
-        { type: QueryTypes.SELECT }
+        {
+            replacements: { networkId },
+            type: QueryTypes.SELECT,
+        }
     );
 
     return rows.map((row) => row.policy_type).filter(Boolean);
 };
 
-const getAvailableDepartments = async () => {
+const getAvailableDepartments = async (networkId) => {
     const rows = await sequelize.query(
         `
         SELECT DISTINCT c.metadata->>'department' AS department
         FROM document_chunks c
         INNER JOIN documents d ON d.id = c.document_id
         WHERE d.status IN ('active', 'published')
+          AND d.network_id = :networkId
           AND c.metadata->>'department' IS NOT NULL
           AND TRIM(c.metadata->>'department') <> ''
         ORDER BY department ASC;
         `,
-        { type: QueryTypes.SELECT }
+        {
+            replacements: { networkId },
+            type: QueryTypes.SELECT,
+        }
     );
 
     return rows.map((row) => row.department).filter(Boolean);
 };
 
 const getCandidateChunks = async ({
+    networkId,
     policyType = null,
     department = null,
     limit = 300,
@@ -78,6 +87,7 @@ const getCandidateChunks = async ({
                 d.updated_at
             FROM documents d
             WHERE d.status IN ('active', 'published')
+              AND d.network_id = :networkId
               AND (d.effective_date IS NULL OR d.effective_date <= NOW())
               AND (:policyType IS NULL OR d.policy_type = :policyType)
             ORDER BY
@@ -109,6 +119,7 @@ const getCandidateChunks = async ({
                 policyType,
                 department,
                 limit,
+                networkId,
             },
             type: QueryTypes.SELECT,
         }
@@ -187,11 +198,13 @@ const shouldPreferClarification = ({
 };
 
 const runHybridRetrieval = async ({
+    networkId,
     question,
     policyType = null,
     department = null,
 }) => {
     const candidateChunks = await getCandidateChunks({
+        networkId,
         policyType,
         department,
     });
@@ -209,6 +222,7 @@ const runHybridRetrieval = async ({
         const questionEmbedding = await embedText(question);
 
         const semanticChunks = await retrieveSemanticallyRelevantChunks({
+            networkId,
             questionEmbedding,
             policyType,
             department,
@@ -248,6 +262,7 @@ const runHybridRetrieval = async ({
 };
 
 const runFallbackFamilyRetrieval = async ({
+    networkId,
     question,
     policyType = null,
     department = null,
@@ -278,6 +293,7 @@ const runFallbackFamilyRetrieval = async ({
 
     for (const familyPolicyType of [...new Set(fallbackFamilies)]) {
         const result = await runHybridRetrieval({
+            networkId,
             question,
             policyType: familyPolicyType,
             department,
@@ -298,6 +314,7 @@ const runFallbackFamilyRetrieval = async ({
 };
 
 const retrievePolicyContext = async ({
+    networkId,
     normalizedQuestion,
     policyType = null,
     department = null,
@@ -306,6 +323,7 @@ const retrievePolicyContext = async ({
     suppressClarification = false,
 }) => {
     let { retrievalMethod, retrievedChunks } = await runHybridRetrieval({
+        networkId,
         question: normalizedQuestion,
         policyType,
         department,
@@ -318,6 +336,7 @@ const retrievePolicyContext = async ({
         (!retrievedChunks.length || scopedTopScore < MEDIUM_SIMILARITY_THRESHOLD)
     ) {
         const fallbackFamilyResult = await runFallbackFamilyRetrieval({
+            networkId,
             question: normalizedQuestion,
             policyType,
             department,
@@ -338,6 +357,7 @@ const retrievePolicyContext = async ({
         (!retrievedChunks.length || getTopRetrievalScore(retrievedChunks) < MEDIUM_SIMILARITY_THRESHOLD)
     ) {
         const broaderResult = await runHybridRetrieval({
+            networkId,
             question: normalizedQuestion,
             policyType: null,
             department,
