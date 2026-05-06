@@ -5,7 +5,7 @@ const { sequelize } = require('../../../config/database');
 const Document = require('../../../models/document');
 const DocumentChunk = require('../../../models/document_chunk');
 
-const { understandUserTurn } = require('./turnUnderstanding');
+const { understandUserTurn } = require('./policyTurnInterpreter');
 const {
     getAvailablePolicyTypes,
     getAvailableDepartments,
@@ -18,6 +18,7 @@ const {
     buildRetrievedChunkResponse,
     buildUnverifiablePolicyResponse,
 } = require('./responseBuilders');
+const { UNVERIFIABLE_ANSWER } = require('./answerGenerator');
 
 const normalizeValue = (value) => {
     if (value === undefined || value === null) return null;
@@ -26,6 +27,104 @@ const normalizeValue = (value) => {
 };
 
 const normalizeDepartment = (value) => normalizeValue(value);
+
+const normalizeForIntent = (value = '') =>
+    String(value || '')
+        .toLowerCase()
+        .trim()
+        .replace(/[^\w\s]/g, '')
+        .replace(/\s+/g, ' ');
+
+const isSourceFollowUpQuestion = (question = '') => {
+    const normalized = normalizeForIntent(question);
+
+    return (
+        normalized.includes('source') ||
+        normalized.includes('citation') ||
+        normalized.includes('cite') ||
+        normalized.includes('where does it say') ||
+        normalized.includes('what policy is that from') ||
+        normalized.includes('what document is that from')
+    );
+};
+
+const isConfirmationFollowUpQuestion = (question = '') => {
+    const normalized = normalizeForIntent(question);
+
+    return (
+        normalized === 'are you sure' ||
+        normalized === 'you sure' ||
+        normalized === 'really' ||
+        normalized === 'is that right' ||
+        normalized === 'is that correct' ||
+        normalized.startsWith('not ') ||
+        normalized.startsWith('so not ') ||
+        normalized.startsWith('so its not ') ||
+        normalized.startsWith('so it is not ')
+    );
+};
+
+const formatSourceReference = (reference = {}) => {
+    const documentTitle = reference.documentTitle || 'Unknown document';
+    const sectionTitle = reference.sectionTitle || null;
+
+    if (sectionTitle) {
+        return `${documentTitle}, section ${sectionTitle}`;
+    }
+
+    return documentTitle;
+};
+
+const buildSourceFollowUpAnswer = (conversationState = null) => {
+    const references = Array.isArray(conversationState?.lastCitations) &&
+        conversationState.lastCitations.length
+        ? conversationState.lastCitations
+        : Array.isArray(conversationState?.lastRetrievedChunks)
+            ? conversationState.lastRetrievedChunks
+            : [];
+
+    const uniqueReferences = [];
+    const seen = new Set();
+
+    for (const reference of references) {
+        const label = formatSourceReference(reference);
+
+        if (!seen.has(label)) {
+            seen.add(label);
+            uniqueReferences.push(label);
+        }
+
+        if (uniqueReferences.length >= 2) {
+            break;
+        }
+    }
+
+    if (!uniqueReferences.length) {
+        return 'I do not have a stored source for that answer.';
+    }
+
+    if (uniqueReferences.length === 1) {
+        return `That answer came from ${uniqueReferences[0]}.`;
+    }
+
+    return `That answer came from ${uniqueReferences.join(' and ')}.`;
+};
+
+const buildConfirmationFollowUpAnswer = (conversationState = null) => {
+    const lastAnswer = String(conversationState?.lastAnswer || '').trim();
+
+    if (!lastAnswer || lastAnswer === UNVERIFIABLE_ANSWER) {
+        return UNVERIFIABLE_ANSWER;
+    }
+
+    if (/^(yes|no)\b/i.test(lastAnswer)) {
+        return lastAnswer;
+    }
+
+    return `Based on the current policy text, ${lastAnswer
+        .charAt(0)
+        .toLowerCase()}${lastAnswer.slice(1)}`;
+};
 
 const buildIngestMetadata = ({
     department,
@@ -203,6 +302,64 @@ const askPolicyQuestion = async (payload = {}) => {
 
     if (!question) {
         throw new Error('Question is required.');
+    }
+
+    if (conversationState?.lastPolicyQuestion) {
+        if (isSourceFollowUpQuestion(question)) {
+            return {
+                mode: 'policy_specific',
+                answer: buildSourceFollowUpAnswer(conversationState),
+                confidence: conversationState?.lastRetrievedChunks?.length
+                    ? 'high'
+                    : 'low',
+                escalationNeeded: false,
+                needsClarification: false,
+                clarificationType: null,
+                clarificationOptions: [],
+                citations: Array.isArray(conversationState?.lastCitations)
+                    ? conversationState.lastCitations
+                    : [],
+                retrievedChunks: Array.isArray(
+                    conversationState?.lastRetrievedChunks
+                )
+                    ? conversationState.lastRetrievedChunks
+                    : [],
+                retrievalMethod: 'conversation_state',
+                resolvedPolicyType:
+                    conversationState?.lastResolvedPolicyType || null,
+                resolvedDepartment:
+                    conversationState?.lastResolvedDepartment || null,
+                conversationState,
+            };
+        }
+
+        if (isConfirmationFollowUpQuestion(question)) {
+            return {
+                mode: 'policy_specific',
+                answer: buildConfirmationFollowUpAnswer(conversationState),
+                confidence: conversationState?.lastRetrievedChunks?.length
+                    ? 'high'
+                    : 'low',
+                escalationNeeded: false,
+                needsClarification: false,
+                clarificationType: null,
+                clarificationOptions: [],
+                citations: Array.isArray(conversationState?.lastCitations)
+                    ? conversationState.lastCitations
+                    : [],
+                retrievedChunks: Array.isArray(
+                    conversationState?.lastRetrievedChunks
+                )
+                    ? conversationState.lastRetrievedChunks
+                    : [],
+                retrievalMethod: 'conversation_state',
+                resolvedPolicyType:
+                    conversationState?.lastResolvedPolicyType || null,
+                resolvedDepartment:
+                    conversationState?.lastResolvedDepartment || null,
+                conversationState,
+            };
+        }
     }
 
     const [availablePolicyTypes, availableDepartments] = await Promise.all([

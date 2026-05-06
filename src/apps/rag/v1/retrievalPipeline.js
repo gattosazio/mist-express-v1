@@ -20,6 +20,31 @@ const {
 
 const formatPolicyTypeOption = (value) => String(value || '').replace(/_/g, ' ');
 
+const QUESTION_SPECIFICITY_TERMS = [
+    'probation',
+    'probationary',
+    'regularization',
+    'allowance',
+    'allowances',
+    'benefit',
+    'benefits',
+    'payroll',
+    'salary',
+    'leave',
+    'remote work',
+    'remote',
+    'attendance',
+    'overtime',
+    'complaint',
+    'grievance',
+    'disciplinary',
+    'resignation',
+    'clearance',
+    'training',
+    'performance',
+    'reimbursement',
+];
+
 const uniqueValues = (values = []) => {
     return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
 };
@@ -129,6 +154,7 @@ const getCandidateChunks = async ({
 };
 
 const buildClarificationFromChunks = ({
+    normalizedQuestion = '',
     retrievedChunks = [],
     explicitPolicyType = false,
     explicitDepartment = false,
@@ -144,7 +170,11 @@ const buildClarificationFromChunks = ({
             topChunks.map((chunk) => chunk.policy_type).map(formatPolicyTypeOption)
         );
 
-        if (policyTypes.length > 1) {
+        if (
+            policyTypes.length > 1 &&
+            !hasStrongQuestionSpecificity(normalizedQuestion) &&
+            !hasDominantPolicyType(topChunks)
+        ) {
             return {
                 needsClarification: true,
                 clarificationType: 'policy_type',
@@ -415,6 +445,7 @@ const retrievePolicyContext = async ({
     const clarification = suppressClarification
         ? null
         : buildClarificationFromChunks({
+              normalizedQuestion,
               retrievedChunks,
               explicitPolicyType,
               explicitDepartment,
@@ -430,6 +461,7 @@ const retrievePolicyContext = async ({
         })
     ) {
         const fallbackClarification = buildClarificationFromChunks({
+            normalizedQuestion,
             retrievedChunks,
             explicitPolicyType: false,
             explicitDepartment: false,
