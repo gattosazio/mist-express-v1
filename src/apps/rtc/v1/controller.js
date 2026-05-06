@@ -2,7 +2,11 @@ const rtcService = require('./service');
 
 const createSession = async (req, res) => {
     try {
-        const session = await rtcService.createVoiceSession(req.user);
+        const session = await rtcService.createVoiceSession({
+            user: req.user,
+            auth: req.auth,
+            network: req.network,
+        });
         return res.status(200).json(session);
     } catch (error) {
         console.error('[RTC SESSION ERROR]', error);
@@ -15,9 +19,17 @@ const createSession = async (req, res) => {
 
 const deleteSession = async (req, res) => {
     try {
-        const result = await rtcService.closeVoiceSession(req.params.sessionId, req.user, {
-            reason: 'client teardown',
-        });
+        const result = await rtcService.closeVoiceSession(
+            req.params.sessionId,
+            {
+                user: req.user,
+                auth: req.auth,
+                network: req.network,
+            },
+            {
+                reason: 'client teardown',
+            }
+        );
 
         return res.status(200).json(result);
     } catch (error) {

@@ -11,6 +11,10 @@ const DocumentChunk = sequelize.define('DocumentChunk', {
         type: DataTypes.INTEGER,
         allowNull: false,
     },
+    network_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+    },
     chunk_index: {
         type: DataTypes.INTEGER,
         allowNull: false,

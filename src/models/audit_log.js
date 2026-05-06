@@ -14,6 +14,14 @@ const AuditLog = sequelize.define(
             type: DataTypes.INTEGER,
             allowNull: true,
         },
+        auth_user_id: {
+            type: DataTypes.STRING,
+            allowNull: true,
+        },
+        network_id: {
+            type: DataTypes.INTEGER,
+            allowNull: true,
+        },
         participant_identity: {
             type: DataTypes.STRING,
             allowNull: true,

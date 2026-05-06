@@ -1,24 +1,36 @@
-const jwt = require('jsonwebtoken');
-const env = require('../config/env');
+const {
+    verifySupabaseJwt,
+    syncLocalUserFromAuth,
+    buildSessionUser,
+} = require('../services/authContext');
 
-const requireAuth = (req, res, next) => {
+const requireAuth = async (req, res, next) => {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ 
-            error: 'Access Denied: No security badge provided.' 
+        return res.status(401).json({
+            error: 'Access denied: bearer token is required.',
         });
     }
 
     const token = authHeader.split(' ')[1];
 
     try {
-        const decodedPayload = jwt.verify(token, env.jwtSecret);
-        req.user = decodedPayload; // Attach user data to the request
-        next(); // Let them pass
+        const claims = await verifySupabaseJwt(token);
+        const localUser = await syncLocalUserFromAuth(claims);
+
+        req.auth = {
+            supabase_user_id: claims.sub,
+            email: claims.email,
+            profile: claims.profile,
+            claims: claims.raw,
+        };
+        req.user = buildSessionUser(localUser, claims);
+
+        return next();
     } catch (error) {
-        console.error('\x1b[31m[SECURITY] Invalid or expired token attempt.\x1b[0m');
-        return res.status(403).json({ error: 'Access Denied: Invalid or expired badge.' });
+        console.error('\x1b[31m[SECURITY] Invalid Supabase token attempt.\x1b[0m', error.message);
+        return res.status(403).json({ error: 'Access denied: invalid or expired token.' });
     }
 };
 

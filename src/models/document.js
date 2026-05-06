@@ -11,6 +11,10 @@ const Document = sequelize.define('Document', {
         type: DataTypes.STRING,
         allowNull: false,
     },
+    network_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+    },
     source_url: {
         type: DataTypes.STRING,
         allowNull: true,

@@ -15,8 +15,8 @@ const buildHttpError = (message, statusCode) => {
 
 const buildRoomName = (sessionId) => `mist-session-${sessionId}`;
 
-const buildParticipantIdentity = (user, sessionId) => {
-    const safeUsername = String(user?.username || 'guest')
+const buildParticipantIdentity = (sessionUser, sessionId) => {
+    const safeUsername = String(sessionUser?.username || sessionUser?.email || sessionUser?.supabase_user_id || 'guest')
         .trim()
         .toLowerCase()
         .replace(/[^a-z0-9_-]/g, '-')
@@ -55,11 +55,15 @@ const isSessionOwner = (session, user) => {
         return false;
     }
 
-    if (session.ownerUserId && user.id) {
+    if (session.ownerUserId && user?.id) {
         return String(session.ownerUserId) === String(user.id);
     }
 
-    return String(session.ownerUsername || '').toLowerCase() === String(user.username || '').toLowerCase();
+    if (session.ownerSupabaseUserId && user?.supabase_user_id) {
+        return String(session.ownerSupabaseUserId) === String(user.supabase_user_id);
+    }
+
+    return String(session.ownerUsername || '').toLowerCase() === String(user?.username || '').toLowerCase();
 };
 
 const getOwnedSessionOrThrow = (sessionId, user) => {
@@ -97,8 +101,8 @@ const markSessionClosed = (sessionId, reason) => {
     return session;
 };
 
-const createVoiceSession = async (user) => {
-    if (!user?.username) {
+const createVoiceSession = async ({ user, auth, network }) => {
+    if (!user?.id || !network?.id) {
         throw buildHttpError('Authenticated user is required to create a voice session.', 401);
     }
 
@@ -111,7 +115,9 @@ const createVoiceSession = async (user) => {
         roomName,
         participantIdentity,
         ownerUserId: user.id || null,
+        ownerSupabaseUserId: auth?.supabase_user_id || null,
         ownerUsername: user.username,
+        networkId: network.id,
         status: 'creating',
         startedAt: new Date().toISOString(),
         endedAt: null,
@@ -124,6 +130,9 @@ const createVoiceSession = async (user) => {
         event: 'session_created',
         sessionId,
         roomName,
+        authUserId: auth?.supabase_user_id || null,
+        localUserId: user.id || null,
+        networkId: network.id,
         username: user.username,
         participantIdentity,
         status: sessionRecord.status,
@@ -134,6 +143,7 @@ const createVoiceSession = async (user) => {
             sessionId,
             ownerUserId: user.id || null,
             ownerUsername: user.username,
+            networkId: network.id,
             onSessionOnline: () => {
                 const current = activeVoiceSessions.get(sessionId);
                 if (!current || current.status === 'closed') {
@@ -147,6 +157,9 @@ const createVoiceSession = async (user) => {
                     event: 'agent_session_ready',
                     sessionId,
                     roomName,
+                    authUserId: current.ownerSupabaseUserId || null,
+                    localUserId: current.ownerUserId || null,
+                    networkId: current.networkId || null,
                     username: current.ownerUsername,
                     participantIdentity: current.participantIdentity,
                     status: current.status,
@@ -167,6 +180,9 @@ const createVoiceSession = async (user) => {
             event: 'session_token_issued',
             sessionId,
             roomName,
+            authUserId: auth?.supabase_user_id || null,
+            localUserId: user.id || null,
+            networkId: network.id,
             username: user.username,
             participantIdentity,
             status: 'active',
@@ -177,6 +193,7 @@ const createVoiceSession = async (user) => {
             roomName,
             participantIdentity,
             token,
+            networkId: network.id,
         };
     } catch (error) {
         const current = activeVoiceSessions.get(sessionId);
@@ -191,6 +208,9 @@ const createVoiceSession = async (user) => {
             event: 'session_create_failed',
             sessionId,
             roomName,
+            authUserId: auth?.supabase_user_id || null,
+            localUserId: user.id || null,
+            networkId: network.id,
             username: user.username,
             participantIdentity,
             status: 'failed',
@@ -201,13 +221,16 @@ const createVoiceSession = async (user) => {
     }
 };
 
-const closeVoiceSession = async (sessionId, user, options = {}) => {
+const closeVoiceSession = async (sessionId, { user, auth, network }, options = {}) => {
     const session = getOwnedSessionOrThrow(sessionId, user);
 
     logRtcSessionEvent({
         event: 'session_close_requested',
         sessionId: session.sessionId,
         roomName: session.roomName,
+        authUserId: auth?.supabase_user_id || null,
+        localUserId: user?.id || null,
+        networkId: network?.id || session.networkId || null,
         username: session.ownerUsername,
         participantIdentity: session.participantIdentity,
         status: session.status,

@@ -1,6 +1,9 @@
 const AuditLog = require('../../../models/audit_log');
 
 const logPolicyInteraction = async ({
+    userId = null,
+    authUserId = null,
+    networkId = null,
     participantIdentity = null,
     query,
     response,
@@ -16,6 +19,9 @@ const logPolicyInteraction = async ({
     }
 
     return AuditLog.create({
+        userId,
+        auth_user_id: authUserId,
+        network_id: networkId,
         participant_identity: participantIdentity,
         channel: 'voice',
         query,
@@ -29,6 +35,30 @@ const logPolicyInteraction = async ({
     });
 };
 
+const logDocumentIngest = async ({
+    userId = null,
+    authUserId = null,
+    networkId = null,
+    query,
+    response,
+    metadata = {},
+}) => {
+    return AuditLog.create({
+        userId,
+        auth_user_id: authUserId,
+        network_id: networkId,
+        channel: 'system',
+        query,
+        response,
+        confidence: 'high',
+        escalation_needed: false,
+        citations: [],
+        retrieved_chunks: [],
+        metadata,
+    });
+};
+
 module.exports = {
     logPolicyInteraction,
+    logDocumentIngest,
 };

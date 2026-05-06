@@ -106,6 +106,7 @@ const retrieveLexicallyRelevantChunks = ({ question, chunks, topK = 5, minScore 
 };
 
 const retrieveSemanticallyRelevantChunks = async ({
+    networkId,
     questionEmbedding,
     policyType = null,
     site = null,
@@ -115,6 +116,7 @@ const retrieveSemanticallyRelevantChunks = async ({
     minSimilarity = 0.2,
 }) => {
     const rows = await searchSemanticChunks({
+        networkId,
         embedding: questionEmbedding,
         policyType,
         site,

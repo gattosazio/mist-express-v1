@@ -150,6 +150,7 @@ const buildIngestMetadata = ({
 
 const ingestDocument = async (payload = {}) => {
     const {
+        networkId,
         title,
         content,
         department,
@@ -167,6 +168,10 @@ const ingestDocument = async (payload = {}) => {
     const normalizedTitle = normalizeValue(title);
     const normalizedContent = normalizeValue(content);
     const normalizedDepartment = normalizeDepartment(department);
+
+    if (!networkId) {
+        throw new Error('Network is required.');
+    }
 
     if (!normalizedTitle || !normalizedContent) {
         throw new Error('Both title and content are required.');
@@ -204,6 +209,7 @@ const ingestDocument = async (payload = {}) => {
     try {
         document = await Document.create(
             {
+                network_id: networkId,
                 title: normalizedTitle,
                 source_url,
                 policy_type,
@@ -218,6 +224,7 @@ const ingestDocument = async (payload = {}) => {
         createdChunks = await DocumentChunk.bulkCreate(
             chunks.map((chunk) => ({
                 document_id: document.id,
+                network_id: networkId,
                 chunk_index: chunk.chunk_index,
                 section_title: chunk.section_title,
                 content: chunk.content,
@@ -249,6 +256,7 @@ const ingestDocument = async (payload = {}) => {
             createdChunks.map((chunk, index) => ({
                 chunkId: chunk.id,
                 documentId: document.id,
+                networkId,
                 embedding: embeddings[index],
             }))
         );
@@ -262,6 +270,7 @@ const ingestDocument = async (payload = {}) => {
 
     return {
         documentId: document.id,
+        networkId,
         department: normalizedDepartment,
         chunkCount: chunks.length,
         embeddingsCreated,
@@ -282,9 +291,14 @@ const askPolicyQuestion = async (payload = {}) => {
             : payload || {};
 
     const {
+        networkId,
         question,
         conversationState = null,
     } = normalizedPayload;
+
+    if (!networkId) {
+        throw new Error('Network is required.');
+    }
 
     if (!question) {
         throw new Error('Question is required.');
@@ -349,8 +363,8 @@ const askPolicyQuestion = async (payload = {}) => {
     }
 
     const [availablePolicyTypes, availableDepartments] = await Promise.all([
-        getAvailablePolicyTypes(),
-        getAvailableDepartments(),
+        getAvailablePolicyTypes(networkId),
+        getAvailableDepartments(networkId),
     ]);
 
     const turn = await understandUserTurn({
@@ -386,6 +400,7 @@ const askPolicyQuestion = async (payload = {}) => {
     }
 
     const retrieval = await retrievePolicyContext({
+        networkId,
         normalizedQuestion: turn.normalizedQuestion,
         policyType: turn.policyType,
         department: turn.department,

@@ -12,6 +12,15 @@ const User = sequelize.define('User', {
         allowNull: false,
         unique: true, // No two users can have the same username
     },
+    supabase_user_id: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        unique: true,
+    },
+    email: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
     passwordHash: {
         type: DataTypes.STRING,
         allowNull: true,

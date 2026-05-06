@@ -1,5 +1,8 @@
 const express = require('express');
 const multer = require('multer');
+const requireAuth = require('../../../middlewares/requireAuth');
+const requireNetworkContext = require('../../../middlewares/requireNetworkContext');
+const requireMembershipRole = require('../../../middlewares/requireMembershipRole');
 const { ingestDocument, ingestDocumentFile, askPolicyQuestion } = require('./controller');
 
 const router = express.Router();
@@ -12,9 +15,22 @@ const upload = multer({
 });
 
 function routes() {
-    router.post('/ingest', ingestDocument);
-    router.post('/ingest/file', upload.single('file'), ingestDocumentFile);
-    router.post('/ask', askPolicyQuestion);
+    router.post(
+        '/ingest',
+        requireAuth,
+        requireNetworkContext,
+        requireMembershipRole(['owner', 'admin']),
+        ingestDocument
+    );
+    router.post(
+        '/ingest/file',
+        requireAuth,
+        requireNetworkContext,
+        requireMembershipRole(['owner', 'admin']),
+        upload.single('file'),
+        ingestDocumentFile
+    );
+    router.post('/ask', requireAuth, requireNetworkContext, askPolicyQuestion);
 
     return router;
 }

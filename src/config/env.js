@@ -6,6 +6,9 @@ const requiredEnvVars = [
     'LIVEKIT_API_KEY',
     'LIVEKIT_API_SECRET',
     'LIVEKIT_URL',
+    'SUPABASE_URL',
+    // 'SUPABASE_JWT_ISSUER',
+    'SUPABASE_PUBLISHABLE_KEY',
 ];
 
 // Find any variables that are missing or empty strings
@@ -21,6 +24,10 @@ if (missingVars.length > 0) {
 module.exports = {
     port: process.env.PORT || 8000,
     databaseUrl: process.env.DATABASE_URL,
+    supabase: {
+        url: process.env.SUPABASE_URL,
+        jwtIssuer: process.env.SUPABASE_JWT_ISSUER || `${process.env.SUPABASE_URL}/auth/v1`,
+    },
     livekit: {
         apiKey: process.env.LIVEKIT_API_KEY,
         apiSecret: process.env.LIVEKIT_API_SECRET,
